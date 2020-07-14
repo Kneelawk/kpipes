@@ -1,3 +1,4 @@
+use std::time::{Duration, SystemTime};
 use winit::{
     dpi::PhysicalSize,
     error::OsError,
@@ -11,8 +12,8 @@ use winit::{
 pub struct Flow<Model: 'static> {
     model_init: Box<dyn Fn(&Window) -> Model>,
     event_callback: Option<Box<dyn Fn(&mut Model, WindowEvent) -> Option<ControlFlow>>>,
-    update_callback: Option<Box<dyn Fn(&mut Model) -> Option<ControlFlow>>>,
-    render_callback: Option<Box<dyn Fn(&mut Model)>>,
+    update_callback: Option<Box<dyn Fn(&mut Model, Duration) -> Option<ControlFlow>>>,
+    render_callback: Option<Box<dyn Fn(&mut Model, Duration)>>,
 
     /// The window's title.
     pub title: String,
@@ -50,7 +51,7 @@ impl<Model: 'static> Flow<Model> {
     }
 
     /// Sets the Flow's update callback.
-    pub fn update<F: Fn(&mut Model) -> Option<ControlFlow> + 'static>(
+    pub fn update<F: Fn(&mut Model, Duration) -> Option<ControlFlow> + 'static>(
         &mut self,
         update_callback: F,
     ) {
@@ -58,7 +59,7 @@ impl<Model: 'static> Flow<Model> {
     }
 
     /// Sets the Flow's render callback.
-    pub fn render<F: Fn(&mut Model) + 'static>(&mut self, render_callback: F) {
+    pub fn render<F: Fn(&mut Model, Duration) + 'static>(&mut self, render_callback: F) {
         self.render_callback = Some(Box::new(render_callback));
     }
 
@@ -81,6 +82,8 @@ impl<Model: 'static> Flow<Model> {
         let window = builder.build(&event_loop)?;
 
         let mut model = (self.model_init)(&window);
+        let mut previous_update = SystemTime::now();
+        let mut previous_render = SystemTime::now();
 
         event_loop.run(move |event, _, control| match event {
             Event::WindowEvent { event, window_id } if window_id == window.id() => {
@@ -91,8 +94,12 @@ impl<Model: 'static> Flow<Model> {
                 }
             }
             Event::MainEventsCleared => {
+                let now = SystemTime::now();
+                let delta = now.duration_since(previous_update).unwrap();
+                previous_update = now;
+
                 if let Some(update_callback) = &self.update_callback {
-                    if let Some(req) = update_callback(&mut model) {
+                    if let Some(req) = update_callback(&mut model, delta) {
                         *control = req;
                     }
                 }
@@ -102,8 +109,12 @@ impl<Model: 'static> Flow<Model> {
                 }
             }
             Event::RedrawRequested(window_id) if window_id == window.id() => {
+                let now = SystemTime::now();
+                let delta = now.duration_since(previous_render).unwrap();
+                previous_render = now;
+
                 if let Some(render_callback) = &self.render_callback {
-                    render_callback(&mut model);
+                    render_callback(&mut model, delta);
                 }
             }
             _ => {}
