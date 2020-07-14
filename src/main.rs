@@ -1,6 +1,9 @@
 mod flow;
+mod render;
 
 use flow::Flow;
+use futures::executor::block_on;
+use render::RenderEngine;
 use winit::{
     event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent},
     event_loop::ControlFlow,
@@ -19,17 +22,29 @@ fn main() {
     flow.start().unwrap();
 }
 
-struct KPipes;
+struct KPipes {
+    renderer: RenderEngine,
+}
 
 impl KPipes {
-    fn init(_window: &Window) -> KPipes {
-        KPipes
+    fn init(window: &Window) -> KPipes {
+        KPipes {
+            renderer: block_on(RenderEngine::new(window)).unwrap(),
+        }
     }
 
     fn event(&mut self, event: WindowEvent) -> Option<ControlFlow> {
         match event {
             WindowEvent::CloseRequested => Some(ControlFlow::Exit),
             WindowEvent::KeyboardInput { input, .. } => self.keyboard_event(input),
+            WindowEvent::Resized(size) => {
+                self.renderer.resize(size);
+                None
+            }
+            WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                self.renderer.resize(*new_inner_size);
+                None
+            }
             _ => None,
         }
     }
@@ -49,5 +64,7 @@ impl KPipes {
         None
     }
 
-    fn render(&mut self) {}
+    fn render(&mut self) {
+        self.renderer.render().unwrap();
+    }
 }
