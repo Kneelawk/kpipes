@@ -6,19 +6,28 @@ use winit::{
     window::{Fullscreen, Window, WindowBuilder},
 };
 
+/// Used to manage an application's control flow as well as integration with the
+/// window manager.
 pub struct Flow<Model: 'static> {
     model_init: Box<dyn Fn(&Window) -> Model>,
     event_callback: Option<Box<dyn Fn(&mut Model, WindowEvent) -> Option<ControlFlow>>>,
     update_callback: Option<Box<dyn Fn(&mut Model) -> Option<ControlFlow>>>,
     render_callback: Option<Box<dyn Fn(&mut Model)>>,
 
+    /// The window's title.
     pub title: String,
+    /// Whether the window should be fullscreen.
     pub fullscreen: bool,
+    /// The window's width if not fullscreen.
     pub width: u32,
+    /// The window's height if not fullscreen.
     pub height: u32,
 }
 
 impl<Model: 'static> Flow<Model> {
+    /// Creates a new Flow designed to handle a specific kind of model.
+    ///
+    /// This model is instantiated when the Flow is started.
     pub fn new<F: Fn(&Window) -> Model + 'static>(model_init: F) -> Flow<Model> {
         Flow {
             model_init: Box::new(model_init),
@@ -32,6 +41,7 @@ impl<Model: 'static> Flow<Model> {
         }
     }
 
+    /// Sets the Flow's window event callback.
     pub fn event<F: Fn(&mut Model, WindowEvent) -> Option<ControlFlow> + 'static>(
         &mut self,
         event_callback: F,
@@ -39,6 +49,7 @@ impl<Model: 'static> Flow<Model> {
         self.event_callback = Some(Box::new(event_callback));
     }
 
+    /// Sets the Flow's update callback.
     pub fn update<F: Fn(&mut Model) -> Option<ControlFlow> + 'static>(
         &mut self,
         update_callback: F,
@@ -46,10 +57,12 @@ impl<Model: 'static> Flow<Model> {
         self.update_callback = Some(Box::new(update_callback));
     }
 
+    /// Sets the Flow's render callback.
     pub fn render<F: Fn(&mut Model) + 'static>(&mut self, render_callback: F) {
         self.render_callback = Some(Box::new(render_callback));
     }
 
+    /// Starts the Flow's event loop.
     pub fn start(self) -> Result<(), FlowStartError> {
         let event_loop = EventLoop::new();
         let mut builder = WindowBuilder::new().with_title(self.title.clone());

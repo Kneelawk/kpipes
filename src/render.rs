@@ -1,5 +1,6 @@
 use winit::{dpi::PhysicalSize, window::Window};
 
+/// Used to manage the details of how render operations are performed.
 pub struct RenderEngine {
     surface: wgpu::Surface,
     adapter: wgpu::Adapter,
