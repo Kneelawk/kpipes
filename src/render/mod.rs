@@ -1,10 +1,12 @@
 pub mod camera;
+pub mod instance;
 pub mod uniforms;
 pub mod vertex;
 
-use crate::render::uniforms::Uniforms;
+use crate::render::{instance::Instance, uniforms::Uniforms};
 use bytemuck::cast_slice;
 use camera::Camera;
+use cgmath::{Matrix4, SquareMatrix};
 use std::{io, io::Cursor, mem::size_of};
 use vertex::Vertex;
 use wgpu::{
@@ -16,7 +18,8 @@ use wgpu::{
     PrimitiveTopology, ProgrammableStageDescriptor, Queue, RasterizationStateDescriptor,
     RenderPassColorAttachmentDescriptor, RenderPassDescriptor, RenderPipeline,
     RenderPipelineDescriptor, RequestAdapterOptions, ShaderStage, StoreOp, Surface, SwapChain,
-    SwapChainDescriptor, TextureFormat, TextureUsage, TimeOut, VertexStateDescriptor,
+    SwapChainDescriptor, TextureFormat, TextureUsage, TimeOut, VertexBufferDescriptor,
+    VertexStateDescriptor,
 };
 use winit::{dpi::PhysicalSize, window::Window};
 
@@ -26,35 +29,27 @@ const SHADER_FRAG: &[u8] = include_bytes!("shader.frag.spv");
 const VERTICES: &[Vertex] = &[
     Vertex {
         position: [-1.0, -1.0, -1.0],
-        color: [0.0, 0.0, 0.0],
     },
     Vertex {
         position: [1.0, -1.0, -1.0],
-        color: [1.0, 0.0, 0.0],
     },
     Vertex {
         position: [-1.0, 1.0, -1.0],
-        color: [0.0, 1.0, 0.0],
     },
     Vertex {
         position: [1.0, 1.0, -1.0],
-        color: [1.0, 1.0, 0.0],
     },
     Vertex {
         position: [-1.0, -1.0, 1.0],
-        color: [0.0, 0.0, 1.0],
     },
     Vertex {
         position: [1.0, -1.0, 1.0],
-        color: [1.0, 0.0, 1.0],
     },
     Vertex {
         position: [-1.0, 1.0, 1.0],
-        color: [0.0, 1.0, 1.0],
     },
     Vertex {
         position: [1.0, 1.0, 1.0],
-        color: [1.0, 1.0, 1.0],
     },
 ];
 
@@ -84,6 +79,8 @@ pub struct RenderEngine {
     vertex_buffer: Buffer,
     index_buffer: Buffer,
     index_count: u32,
+    instance_buffer: Buffer,
+    instance_count: u32,
     uniforms: Uniforms,
     uniform_staging_buffer: Buffer,
     uniform_buffer: Buffer,
@@ -114,8 +111,8 @@ impl RenderEngine {
             },
             BackendBit::PRIMARY,
         )
-        .await
-        .ok_or(RenderEngineCreationError::MissingAdapterError)?;
+            .await
+            .ok_or(RenderEngineCreationError::MissingAdapterError)?;
 
         // setup device
         let (device, queue) = adapter
@@ -138,11 +135,24 @@ impl RenderEngine {
 
         let swap_chain = device.create_swap_chain(&surface, &sc_desc);
 
-        // setup vertex/index data buffers
+        // setup vertex/index/instance data buffers
         let vertex_buffer =
             device.create_buffer_with_data(cast_slice(VERTICES), BufferUsage::VERTEX);
 
         let index_buffer = device.create_buffer_with_data(cast_slice(INDICES), BufferUsage::INDEX);
+
+        let instances = &[
+            Instance {
+                color: (0.0, 0.1, 0.2).into(),
+                model: Matrix4::identity(),
+            },
+            Instance {
+                color: (0.2, 0.0, 0.1).into(),
+                model: Matrix4::from_translation((-2.0, 0.0, 0.0).into()),
+            },
+        ];
+        let instance_buffer =
+            device.create_buffer_with_data(cast_slice(instances), BufferUsage::VERTEX);
 
         // setup camera
         let camera = Camera {
@@ -232,7 +242,7 @@ impl RenderEngine {
             depth_stencil_state: None,
             vertex_state: VertexStateDescriptor {
                 index_format: IndexFormat::Uint16,
-                vertex_buffers: &[Vertex::desc()],
+                vertex_buffers: &[Vertex::desc(), Instance::desc()],
             },
             sample_count: 1,
             sample_mask: 0,
@@ -249,6 +259,8 @@ impl RenderEngine {
             vertex_buffer,
             index_buffer,
             index_count: INDICES.len() as u32,
+            instance_buffer,
+            instance_count: instances.len() as u32,
             camera,
             uniforms,
             uniform_staging_buffer,
@@ -335,14 +347,20 @@ impl RenderEngine {
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
             render_pass.set_vertex_buffer(0, &self.vertex_buffer, 0, 0);
+            render_pass.set_vertex_buffer(1, &self.instance_buffer, 0, 0);
             render_pass.set_index_buffer(&self.index_buffer, 0, 0);
-            render_pass.draw_indexed(0..self.index_count, 0, 0..1);
+            render_pass.draw_indexed(0..self.index_count, 0, 0..self.instance_count);
         }
 
         self.queue.submit(&[encoder.finish()]);
 
         Ok(())
     }
+}
+
+/// Trait implemented by anything that can be put into a vertex buffer.
+pub trait VertexData {
+    fn desc<'a>() -> VertexBufferDescriptor<'a>;
 }
 
 /// Error potentially returned when creating a RenderEngine.
