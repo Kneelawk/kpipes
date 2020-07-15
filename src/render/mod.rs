@@ -1,25 +1,27 @@
 pub mod camera;
 pub mod instance;
+pub mod texture;
 pub mod uniforms;
 pub mod vertex;
 
-use crate::render::{instance::Instance, uniforms::Uniforms};
+use crate::render::{
+    camera::Camera, instance::Instance, texture::Texture, uniforms::Uniforms, vertex::Vertex,
+};
 use bytemuck::cast_slice;
-use camera::Camera;
 use cgmath::{Matrix4, SquareMatrix};
 use std::{io, io::Cursor, mem::size_of};
-use vertex::Vertex;
 use wgpu::{
     read_spirv, Adapter, BackendBit, BindGroup, BindGroupDescriptor, BindGroupLayoutDescriptor,
     BindGroupLayoutEntry, Binding, BindingResource, BindingType, BlendDescriptor, Buffer,
     BufferAddress, BufferAsyncErr, BufferUsage, Color, ColorStateDescriptor, ColorWrite,
-    CommandEncoderDescriptor, CullMode, Device, DeviceDescriptor, Extensions, FrontFace,
-    IndexFormat, LoadOp, Maintain, PipelineLayoutDescriptor, PowerPreference, PresentMode,
-    PrimitiveTopology, ProgrammableStageDescriptor, Queue, RasterizationStateDescriptor,
-    RenderPassColorAttachmentDescriptor, RenderPassDescriptor, RenderPipeline,
-    RenderPipelineDescriptor, RequestAdapterOptions, ShaderStage, StoreOp, Surface, SwapChain,
-    SwapChainDescriptor, TextureFormat, TextureUsage, TimeOut, VertexBufferDescriptor,
-    VertexStateDescriptor,
+    CommandEncoderDescriptor, CompareFunction, CullMode, DepthStencilStateDescriptor, Device,
+    DeviceDescriptor, Extensions, FrontFace, IndexFormat, LoadOp, Maintain,
+    PipelineLayoutDescriptor, PowerPreference, PresentMode, PrimitiveTopology,
+    ProgrammableStageDescriptor, Queue, RasterizationStateDescriptor,
+    RenderPassColorAttachmentDescriptor, RenderPassDepthStencilAttachmentDescriptor,
+    RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor, RequestAdapterOptions,
+    ShaderStage, StencilStateFaceDescriptor, StoreOp, Surface, SwapChain, SwapChainDescriptor,
+    TextureFormat, TextureUsage, TimeOut, VertexBufferDescriptor, VertexStateDescriptor,
 };
 use winit::{dpi::PhysicalSize, window::Window};
 
@@ -85,6 +87,7 @@ pub struct RenderEngine {
     uniform_staging_buffer: Buffer,
     uniform_buffer: Buffer,
     uniform_bind_group: BindGroup,
+    depth_texture: Texture,
     render_pipeline: RenderPipeline,
     window_size: PhysicalSize<u32>,
 
@@ -111,8 +114,8 @@ impl RenderEngine {
             },
             BackendBit::PRIMARY,
         )
-            .await
-            .ok_or(RenderEngineCreationError::MissingAdapterError)?;
+        .await
+        .ok_or(RenderEngineCreationError::MissingAdapterError)?;
 
         // setup device
         let (device, queue) = adapter
@@ -210,6 +213,9 @@ impl RenderEngine {
         let vs_module = device.create_shader_module(&vs_data);
         let fs_module = device.create_shader_module(&fs_data);
 
+        // setup depth texture
+        let depth_texture = Texture::new_depth(&device, window_size, "depth_texture");
+
         // setup render pipeline
         let render_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             bind_group_layouts: &[&uniform_bind_group_layout],
@@ -239,7 +245,15 @@ impl RenderEngine {
                 color_blend: BlendDescriptor::REPLACE,
                 write_mask: ColorWrite::ALL,
             }],
-            depth_stencil_state: None,
+            depth_stencil_state: Some(DepthStencilStateDescriptor {
+                format: TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: CompareFunction::Less,
+                stencil_front: StencilStateFaceDescriptor::IGNORE,
+                stencil_back: StencilStateFaceDescriptor::IGNORE,
+                stencil_read_mask: 0,
+                stencil_write_mask: 0,
+            }),
             vertex_state: VertexStateDescriptor {
                 index_format: IndexFormat::Uint16,
                 vertex_buffers: &[Vertex::desc(), Instance::desc()],
@@ -266,6 +280,7 @@ impl RenderEngine {
             uniform_staging_buffer,
             uniform_buffer,
             uniform_bind_group,
+            depth_texture,
             render_pipeline,
             window_size,
         })
@@ -278,6 +293,7 @@ impl RenderEngine {
         self.sc_desc.height = window_size.height;
         self.swap_chain = self.device.create_swap_chain(&self.surface, &self.sc_desc);
         self.camera.aspect = window_size.width as f32 / window_size.height as f32;
+        self.depth_texture = Texture::new_depth(&self.device, window_size, "depth_texture");
     }
 
     /// Updates the data on the gpu to match the changes to this RenderEngine's
@@ -341,7 +357,15 @@ impl RenderEngine {
                         a: 1.0,
                     },
                 }],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
+                    attachment: &self.depth_texture.view,
+                    depth_load_op: LoadOp::Clear,
+                    depth_store_op: StoreOp::Store,
+                    clear_depth: 1.0,
+                    stencil_load_op: LoadOp::Clear,
+                    stencil_store_op: StoreOp::Store,
+                    clear_stencil: 0,
+                }),
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
