@@ -265,6 +265,7 @@ impl RenderEngine {
         self.sc_desc.width = window_size.width;
         self.sc_desc.height = window_size.height;
         self.swap_chain = self.device.create_swap_chain(&self.surface, &self.sc_desc);
+        self.camera.aspect = window_size.width as f32 / window_size.height as f32;
     }
 
     /// Updates the data on the gpu to match the changes to this RenderEngine's
