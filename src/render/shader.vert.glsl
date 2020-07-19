@@ -4,10 +4,10 @@ layout(set = 0, binding = 0) uniform Uniforms {
     mat4 u_vp_matrix;
 };
 
-layout(location = 0) in vec3 a_position;
+layout(location = 0) in vec3 s_color;
+layout(location = 1) in mat4 s_model;
 
-layout(location = 1) in vec3 s_color;
-layout(location = 2) in mat4 s_model;
+layout(location = 5) in vec3 a_position;
 
 layout(location = 0) out vec3 v_color;
 

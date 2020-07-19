@@ -81,9 +81,9 @@ pub struct RenderEngine {
     queue: Queue,
     sc_desc: SwapChainDescriptor,
     swap_chain: SwapChain,
+    instance_buffer: BufferWrapper<Instance>,
     vertex_buffer: BufferWrapper<Vertex>,
     index_buffer: BufferWrapper<u16>,
-    instance_buffer: BufferWrapper<Instance>,
     uniforms: Uniforms,
     uniform_buffer: BufferWrapper<Uniforms>,
     uniform_bind_group: BindGroup,
@@ -139,11 +139,11 @@ impl RenderEngine {
         let swap_chain = device.create_swap_chain(&surface, &sc_desc);
 
         // setup vertex/index/instance data buffers
+        let instance_buffer = BufferWrapper::new(&device, 3, BufferUsage::VERTEX);
+
         let vertex_buffer = BufferWrapper::from_data(&device, VERTICES, BufferUsage::VERTEX);
 
         let index_buffer = BufferWrapper::from_data(&device, INDICES, BufferUsage::INDEX);
-
-        let instance_buffer = BufferWrapper::new(&device, 3, BufferUsage::VERTEX);
 
         // setup camera
         let camera = Camera {
@@ -236,7 +236,7 @@ impl RenderEngine {
             }),
             vertex_state: VertexStateDescriptor {
                 index_format: IndexFormat::Uint16,
-                vertex_buffers: &[Vertex::desc(), Instance::desc()],
+                vertex_buffers: &[Instance::desc(), Vertex::desc()],
             },
             sample_count: 1,
             sample_mask: 0,
@@ -250,9 +250,9 @@ impl RenderEngine {
             queue,
             sc_desc,
             swap_chain,
+            instance_buffer,
             vertex_buffer,
             index_buffer,
-            instance_buffer,
             camera,
             uniforms,
             uniform_buffer,
@@ -338,8 +338,8 @@ impl RenderEngine {
 
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, &self.vertex_buffer.buffer(), 0, 0);
-            render_pass.set_vertex_buffer(1, self.instance_buffer.buffer(), 0, 0);
+            render_pass.set_vertex_buffer(0, self.instance_buffer.buffer(), 0, 0);
+            render_pass.set_vertex_buffer(1, &self.vertex_buffer.buffer(), 0, 0);
             render_pass.set_index_buffer(&self.index_buffer.buffer(), 0, 0);
             render_pass.draw_indexed(
                 0..(self.index_buffer.size() as u32),

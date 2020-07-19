@@ -28,27 +28,27 @@ impl VertexData for Instance {
                 VertexAttributeDescriptor {
                     offset: 0,
                     format: VertexFormat::Float3,
-                    shader_location: 1,
+                    shader_location: 0,
                 },
                 VertexAttributeDescriptor {
                     offset: FLOAT_SIZE * 3,
                     format: VertexFormat::Float4,
-                    shader_location: 2,
+                    shader_location: 1,
                 },
                 VertexAttributeDescriptor {
                     offset: FLOAT_SIZE * 3 + FLOAT_SIZE * 4,
                     format: VertexFormat::Float4,
-                    shader_location: 3,
+                    shader_location: 2,
                 },
                 VertexAttributeDescriptor {
                     offset: FLOAT_SIZE * 3 + FLOAT_SIZE * 4 * 2,
                     format: VertexFormat::Float4,
-                    shader_location: 4,
+                    shader_location: 3,
                 },
                 VertexAttributeDescriptor {
                     offset: FLOAT_SIZE * 3 + FLOAT_SIZE * 4 * 3,
                     format: VertexFormat::Float4,
-                    shader_location: 5,
+                    shader_location: 4,
                 },
             ],
         }

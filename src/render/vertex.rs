@@ -23,7 +23,7 @@ impl VertexData for Vertex {
             attributes: &[VertexAttributeDescriptor {
                 offset: 0,
                 format: VertexFormat::Float3,
-                shader_location: 0,
+                shader_location: 5,
             }],
         }
     }
