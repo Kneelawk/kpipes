@@ -1,6 +1,8 @@
 mod flow;
 mod render;
 
+use crate::render::instance::Instance;
+use cgmath::Matrix4;
 use flow::Flow;
 use futures::executor::block_on;
 use render::RenderEngine;
@@ -26,6 +28,7 @@ fn main() {
 struct KPipes {
     renderer: RenderEngine,
     rot: f32,
+    instance: u32,
 }
 
 impl KPipes {
@@ -33,6 +36,7 @@ impl KPipes {
         KPipes {
             renderer: block_on(RenderEngine::new(window)).unwrap(),
             rot: 0.0,
+            instance: 0,
         }
     }
 
@@ -59,6 +63,26 @@ impl KPipes {
                 virtual_keycode: Some(VirtualKeyCode::Escape),
                 ..
             } => Some(ControlFlow::Exit),
+            KeyboardInput {
+                state: ElementState::Pressed,
+                virtual_keycode: Some(VirtualKeyCode::Space),
+                ..
+            } => {
+                let instance = Instance {
+                    color: (self.instance as f32 / 4.0, 0.1, 0.2).into(),
+                    model: Matrix4::from_scale(0.5)
+                        * Matrix4::from_translation((0.0, self.instance as f32 * 2.0, 0.0).into()),
+                };
+
+                if block_on(self.renderer.add_instance(instance)).is_ok() {
+                    self.instance += 1;
+                } else {
+                    self.renderer.clear_instances();
+                    self.instance = 0;
+                }
+
+                None
+            }
             _ => None,
         }
     }

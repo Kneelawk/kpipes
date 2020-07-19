@@ -1,3 +1,4 @@
+pub mod buffer;
 pub mod camera;
 pub mod instance;
 pub mod texture;
@@ -5,19 +6,21 @@ pub mod uniforms;
 pub mod vertex;
 
 use crate::render::{
-    camera::Camera, instance::Instance, texture::Texture, uniforms::Uniforms, vertex::Vertex,
+    buffer::{BufferWrapper, BufferWriteError},
+    camera::Camera,
+    instance::Instance,
+    texture::Texture,
+    uniforms::Uniforms,
+    vertex::Vertex,
 };
-use bytemuck::cast_slice;
-use cgmath::{Matrix4, SquareMatrix};
 use std::{io, io::Cursor, mem::size_of};
 use wgpu::{
     read_spirv, Adapter, BackendBit, BindGroup, BindGroupDescriptor, BindGroupLayoutDescriptor,
-    BindGroupLayoutEntry, Binding, BindingResource, BindingType, BlendDescriptor, Buffer,
-    BufferAddress, BufferAsyncErr, BufferUsage, Color, ColorStateDescriptor, ColorWrite,
-    CommandEncoderDescriptor, CompareFunction, CullMode, DepthStencilStateDescriptor, Device,
-    DeviceDescriptor, Extensions, FrontFace, IndexFormat, LoadOp, Maintain,
-    PipelineLayoutDescriptor, PowerPreference, PresentMode, PrimitiveTopology,
-    ProgrammableStageDescriptor, Queue, RasterizationStateDescriptor,
+    BindGroupLayoutEntry, Binding, BindingResource, BindingType, BlendDescriptor, BufferAddress,
+    BufferUsage, Color, ColorStateDescriptor, ColorWrite, CommandEncoderDescriptor,
+    CompareFunction, CullMode, DepthStencilStateDescriptor, Device, DeviceDescriptor, Extensions,
+    FrontFace, IndexFormat, LoadOp, PipelineLayoutDescriptor, PowerPreference, PresentMode,
+    PrimitiveTopology, ProgrammableStageDescriptor, Queue, RasterizationStateDescriptor,
     RenderPassColorAttachmentDescriptor, RenderPassDepthStencilAttachmentDescriptor,
     RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor, RequestAdapterOptions,
     ShaderStage, StencilStateFaceDescriptor, StoreOp, Surface, SwapChain, SwapChainDescriptor,
@@ -78,14 +81,11 @@ pub struct RenderEngine {
     queue: Queue,
     sc_desc: SwapChainDescriptor,
     swap_chain: SwapChain,
-    vertex_buffer: Buffer,
-    index_buffer: Buffer,
-    index_count: u32,
-    instance_buffer: Buffer,
-    instance_count: u32,
+    vertex_buffer: BufferWrapper<Vertex>,
+    index_buffer: BufferWrapper<u16>,
+    instance_buffer: BufferWrapper<Instance>,
     uniforms: Uniforms,
-    uniform_staging_buffer: Buffer,
-    uniform_buffer: Buffer,
+    uniform_buffer: BufferWrapper<Uniforms>,
     uniform_bind_group: BindGroup,
     depth_texture: Texture,
     render_pipeline: RenderPipeline,
@@ -139,23 +139,11 @@ impl RenderEngine {
         let swap_chain = device.create_swap_chain(&surface, &sc_desc);
 
         // setup vertex/index/instance data buffers
-        let vertex_buffer =
-            device.create_buffer_with_data(cast_slice(VERTICES), BufferUsage::VERTEX);
+        let vertex_buffer = BufferWrapper::from_data(&device, VERTICES, BufferUsage::VERTEX);
 
-        let index_buffer = device.create_buffer_with_data(cast_slice(INDICES), BufferUsage::INDEX);
+        let index_buffer = BufferWrapper::from_data(&device, INDICES, BufferUsage::INDEX);
 
-        let instances = &[
-            Instance {
-                color: (0.0, 0.1, 0.2).into(),
-                model: Matrix4::identity(),
-            },
-            Instance {
-                color: (0.2, 0.0, 0.1).into(),
-                model: Matrix4::from_translation((-2.0, 0.0, 0.0).into()),
-            },
-        ];
-        let instance_buffer =
-            device.create_buffer_with_data(cast_slice(instances), BufferUsage::VERTEX);
+        let instance_buffer = BufferWrapper::new(&device, 3, BufferUsage::VERTEX);
 
         // setup camera
         let camera = Camera {
@@ -172,16 +160,8 @@ impl RenderEngine {
         let mut uniforms = Uniforms::new();
         uniforms.update_camera(&camera);
 
-        // create uniform buffers
-        let uniform_staging_buffer = device.create_buffer_with_data(
-            cast_slice(&[uniforms]),
-            BufferUsage::MAP_WRITE | BufferUsage::COPY_SRC,
-        );
-
-        let uniform_buffer = device.create_buffer_with_data(
-            cast_slice(&[uniforms]),
-            BufferUsage::UNIFORM | BufferUsage::COPY_DST,
-        );
+        // create uniform buffer
+        let uniform_buffer = BufferWrapper::from_data(&device, &[uniforms], BufferUsage::UNIFORM);
 
         // setup uniform bind group
         let uniform_bind_group_layout =
@@ -199,7 +179,7 @@ impl RenderEngine {
             bindings: &[Binding {
                 binding: 0,
                 resource: BindingResource::Buffer {
-                    buffer: &uniform_buffer,
+                    buffer: uniform_buffer.buffer(),
                     range: 0..size_of::<Uniforms>() as BufferAddress,
                 },
             }],
@@ -272,12 +252,9 @@ impl RenderEngine {
             swap_chain,
             vertex_buffer,
             index_buffer,
-            index_count: INDICES.len() as u32,
             instance_buffer,
-            instance_count: instances.len() as u32,
             camera,
             uniforms,
-            uniform_staging_buffer,
             uniform_buffer,
             uniform_bind_group,
             depth_texture,
@@ -298,39 +275,30 @@ impl RenderEngine {
 
     /// Updates the data on the gpu to match the changes to this RenderEngine's
     /// camera.
-    pub async fn update_camera(&mut self) -> Result<(), UpdateCameraError> {
+    pub async fn update_camera(&mut self) -> Result<(), BufferWriteError> {
         self.uniforms.update_camera(&self.camera);
 
-        // map the uniform staging buffer
-        let mapping = self
-            .uniform_staging_buffer
-            .map_write(0, size_of::<Uniforms>() as BufferAddress);
-        self.device.poll(Maintain::Wait);
-
-        // copy the data to the uniform staging buffer
-        let mut buf = mapping.await?;
-        buf.as_slice().copy_from_slice(cast_slice(&[self.uniforms]));
-
-        self.uniform_staging_buffer.unmap();
-
-        // copy data from the uniform staging buffer to the uniform buffer
-        let mut encoder = self
-            .device
-            .create_command_encoder(&CommandEncoderDescriptor {
-                label: Some("uniform_staging_encoder"),
-            });
-
-        encoder.copy_buffer_to_buffer(
-            &self.uniform_staging_buffer,
-            0,
-            &self.uniform_buffer,
-            0,
-            size_of::<Uniforms>() as BufferAddress,
-        );
-
-        self.queue.submit(&[encoder.finish()]);
+        self.queue.submit(&[self
+            .uniform_buffer
+            .replace_all(&self.device, &[self.uniforms])
+            .await?]);
 
         Ok(())
+    }
+
+    /// Adds an instance to this render engine.
+    pub async fn add_instance(&mut self, instance: Instance) -> Result<(), BufferWriteError> {
+        self.queue.submit(&[self
+            .instance_buffer
+            .append(&self.device, &[instance])
+            .await?]);
+
+        Ok(())
+    }
+
+    /// Removes all instance from this render engine.
+    pub fn clear_instances(&mut self) {
+        self.instance_buffer.clear();
     }
 
     /// Performs a render.
@@ -370,10 +338,14 @@ impl RenderEngine {
 
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, &self.vertex_buffer, 0, 0);
-            render_pass.set_vertex_buffer(1, &self.instance_buffer, 0, 0);
-            render_pass.set_index_buffer(&self.index_buffer, 0, 0);
-            render_pass.draw_indexed(0..self.index_count, 0, 0..self.instance_count);
+            render_pass.set_vertex_buffer(0, &self.vertex_buffer.buffer(), 0, 0);
+            render_pass.set_vertex_buffer(1, self.instance_buffer.buffer(), 0, 0);
+            render_pass.set_index_buffer(&self.index_buffer.buffer(), 0, 0);
+            render_pass.draw_indexed(
+                0..(self.index_buffer.size() as u32),
+                0,
+                0..(self.instance_buffer.size() as u32),
+            );
         }
 
         self.queue.submit(&[encoder.finish()]);
@@ -397,18 +369,6 @@ pub enum RenderEngineCreationError {
 impl From<io::Error> for RenderEngineCreationError {
     fn from(e: io::Error) -> Self {
         RenderEngineCreationError::IOError(e)
-    }
-}
-
-/// Error potentially returned when updating the camera.
-#[derive(Debug, Clone)]
-pub enum UpdateCameraError {
-    BufferAsyncError(BufferAsyncErr),
-}
-
-impl From<BufferAsyncErr> for UpdateCameraError {
-    fn from(e: BufferAsyncErr) -> Self {
-        UpdateCameraError::BufferAsyncError(e)
     }
 }
 
