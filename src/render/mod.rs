@@ -9,7 +9,7 @@ use crate::render::{
     buffer::{BufferWrapper, BufferWriteError},
     camera::Camera,
     instance::Instance,
-    texture::Texture,
+    texture::TextureWrapper,
     uniforms::Uniforms,
     vertex::Vertex,
 };
@@ -87,7 +87,7 @@ pub struct RenderEngine {
     uniforms: Uniforms,
     uniform_buffer: BufferWrapper<Uniforms>,
     uniform_bind_group: BindGroup,
-    depth_texture: Texture,
+    depth_texture: TextureWrapper,
     render_pipeline: RenderPipeline,
     window_size: PhysicalSize<u32>,
 
@@ -194,7 +194,7 @@ impl RenderEngine {
         let fs_module = device.create_shader_module(&fs_data);
 
         // setup depth texture
-        let depth_texture = Texture::new_depth(&device, window_size, "depth_texture");
+        let depth_texture = TextureWrapper::new_depth(&device, window_size, "depth_texture");
 
         // setup render pipeline
         let render_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
@@ -270,7 +270,7 @@ impl RenderEngine {
         self.sc_desc.height = window_size.height;
         self.swap_chain = self.device.create_swap_chain(&self.surface, &self.sc_desc);
         self.camera.aspect = window_size.width as f32 / window_size.height as f32;
-        self.depth_texture = Texture::new_depth(&self.device, window_size, "depth_texture");
+        self.depth_texture = TextureWrapper::new_depth(&self.device, window_size, "depth_texture");
     }
 
     /// Updates the data on the gpu to match the changes to this RenderEngine's

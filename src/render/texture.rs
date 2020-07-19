@@ -1,15 +1,16 @@
 use wgpu::{
-    Device, Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsage, TextureView,
+    Device, Extent3d, Texture, TextureDescriptor, TextureDimension, TextureFormat, TextureUsage,
+    TextureView,
 };
 use winit::dpi::PhysicalSize;
 
-pub struct Texture {
-    pub texture: wgpu::Texture,
+pub struct TextureWrapper {
+    pub texture: Texture,
     pub view: TextureView,
 }
 
-impl Texture {
-    pub fn new_depth(device: &Device, size: PhysicalSize<u32>, label: &str) -> Texture {
+impl TextureWrapper {
+    pub fn new_depth(device: &Device, size: PhysicalSize<u32>, label: &str) -> TextureWrapper {
         let extent = Extent3d {
             width: size.width,
             height: size.height,
@@ -31,6 +32,6 @@ impl Texture {
 
         let view = texture.create_default_view();
 
-        Texture { texture, view }
+        TextureWrapper { texture, view }
     }
 }
