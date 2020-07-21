@@ -32,11 +32,11 @@ impl Lighting {
                     strength: 1.0,
                 },
                 Light {
-                    direction: Vector3::new(1.0, -2.0, 3.0).normalize(),
-                    strength: 0.8,
+                    direction: Vector3::new(1.0, 2.0, 3.0).normalize(),
+                    strength: 0.6,
                 },
             ],
-            ambient_light: 0.1,
+            ambient_light: 0.2,
         }
     }
 }
