@@ -107,7 +107,7 @@ impl RenderEngine {
         let instance_buffer = BufferWrapper::new(&device, 3, BufferUsage::VERTEX);
 
         // load mesh
-        let cube_mesh = Mesh::load(&device, &mut Cursor::new(CUBE_OBJ))?;
+        let (cube_mesh, mut cube_cbs) = Mesh::load(&device, &mut Cursor::new(CUBE_OBJ))?;
 
         // setup camera
         let camera = Camera {
@@ -125,11 +125,13 @@ impl RenderEngine {
         uniforms.update_camera(&camera);
 
         // create uniform buffer
-        let uniform_buffer = BufferWrapper::from_data(&device, &[uniforms], BufferUsage::UNIFORM);
+        let (uniform_buffer, uniform_cb) =
+            BufferWrapper::from_data(&device, &[uniforms], BufferUsage::UNIFORM);
 
         // setup lighting values
         let lighting = Lighting::new();
-        let lighting_buffer = BufferWrapper::from_data(&device, &[lighting], BufferUsage::UNIFORM);
+        let (lighting_buffer, lighting_cb) =
+            BufferWrapper::from_data(&device, &[lighting], BufferUsage::UNIFORM);
 
         // setup uniform bind group
         let uniform_bind_group_layout =
@@ -226,6 +228,10 @@ impl RenderEngine {
             sample_mask: 0,
             alpha_to_coverage_enabled: false,
         });
+
+        let mut submissions = vec![uniform_cb, lighting_cb];
+        submissions.append(&mut cube_cbs);
+        queue.submit(&submissions);
 
         // return the result
         Ok(RenderEngine {

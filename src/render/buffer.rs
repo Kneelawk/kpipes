@@ -23,21 +23,44 @@ impl<D: Encodable + Sized> BufferWrapper<D> {
     }
 
     /// Creates a new buffer wrapper with the given data and usage.
-    pub fn from_data(device: &Device, data: &[D], usage: BufferUsage) -> BufferWrapper<D> {
-        let mut temp_data = vec![0; D::size() * data.len()];
-        D::encode_slice(data, &mut temp_data);
-
-        let buffer = device.create_buffer_with_data(&temp_data, usage | BufferUsage::COPY_DST);
+    pub fn from_data(
+        device: &Device,
+        data: &[D],
+        usage: BufferUsage,
+    ) -> (BufferWrapper<D>, CommandBuffer) {
         let size = data.len() as BufferAddress;
+        let buffer_size = size * BufferWrapper::<D>::data_size();
+        let staging_buffer = device.create_buffer_mapped(&BufferDescriptor {
+            label: Some("wrapped_staging_buffer"),
+            size: buffer_size,
+            usage: BufferUsage::MAP_WRITE | BufferUsage::COPY_SRC,
+        });
+        D::encode_slice(data, staging_buffer.data);
+        let staging_buffer = staging_buffer.finish();
 
-        BufferWrapper {
-            buffer,
-            staging_buffer: None,
-            capacity: size,
-            staging_capacity: 0,
-            size,
-            _marker: PhantomData,
-        }
+        let buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("wrapped_buffer"),
+            size: buffer_size,
+            usage: usage | BufferUsage::COPY_DST,
+        });
+
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+            label: Some("initial_buffer_staging_encoder"),
+        });
+
+        encoder.copy_buffer_to_buffer(&staging_buffer, 0, &buffer, 0, buffer_size);
+
+        (
+            BufferWrapper {
+                buffer,
+                staging_buffer: Some(staging_buffer),
+                capacity: size,
+                staging_capacity: size,
+                size,
+                _marker: PhantomData,
+            },
+            encoder.finish(),
+        )
     }
 
     /// Creates a new buffer wrapper with the given capacity.

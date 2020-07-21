@@ -2,7 +2,7 @@ use crate::render::{buffer::BufferWrapper, vertex::Vertex};
 use cgmath::Vector3;
 use std::io::BufRead;
 use tobj::{load_obj_buf, LoadError};
-use wgpu::{BufferUsage, Device, RenderPass};
+use wgpu::{BufferUsage, CommandBuffer, Device, RenderPass};
 
 /// Describes a single mesh.
 pub struct Mesh {
@@ -12,7 +12,10 @@ pub struct Mesh {
 
 impl Mesh {
     /// Loads a mesh from memory containing a wavefront obj format object file.
-    pub fn load<B: BufRead>(device: &Device, reader: &mut B) -> Result<Mesh, MeshLoadError> {
+    pub fn load<B: BufRead>(
+        device: &Device,
+        reader: &mut B,
+    ) -> Result<(Mesh, Vec<CommandBuffer>), MeshLoadError> {
         let (obj, _) = load_obj_buf(reader, true, |_p| Err(LoadError::GenericFailure))?;
 
         let model = obj
@@ -37,10 +40,18 @@ impl Mesh {
             })
         }
 
-        Ok(Mesh {
-            vertex_buffer: BufferWrapper::from_data(device, &vertices, BufferUsage::VERTEX),
-            index_buffer: BufferWrapper::from_data(device, &model.mesh.indices, BufferUsage::INDEX),
-        })
+        let (vertex_buffer, vertex_cb) =
+            BufferWrapper::from_data(device, &vertices, BufferUsage::VERTEX);
+        let (index_buffer, index_cb) =
+            BufferWrapper::from_data(device, &model.mesh.indices, BufferUsage::INDEX);
+
+        Ok((
+            Mesh {
+                vertex_buffer,
+                index_buffer,
+            },
+            vec![vertex_cb, index_cb],
+        ))
     }
 
     pub fn index_len(&self) -> u32 {
