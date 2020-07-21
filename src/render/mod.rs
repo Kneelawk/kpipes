@@ -2,6 +2,7 @@ pub mod buffer;
 pub mod camera;
 pub mod instance;
 pub mod lighting;
+pub mod mesh;
 pub mod texture;
 pub mod uniforms;
 pub mod vertex;
@@ -11,12 +12,11 @@ use crate::render::{
     camera::Camera,
     instance::Instance,
     lighting::Lighting,
+    mesh::{Mesh, MeshLoadError},
     texture::TextureWrapper,
     uniforms::Uniforms,
     vertex::Vertex,
 };
-use cgmath::{InnerSpace, Vector3};
-use lazy_static::lazy_static;
 use std::{io, io::Cursor, mem::size_of};
 use wgpu::{
     read_spirv, Adapter, BackendBit, BindGroup, BindGroupDescriptor, BindGroupLayoutDescriptor,
@@ -35,58 +35,7 @@ use winit::{dpi::PhysicalSize, window::Window};
 const SHADER_VERT: &[u8] = include_bytes!("shader.vert.spv");
 const SHADER_FRAG: &[u8] = include_bytes!("shader.frag.spv");
 
-lazy_static! {
-    static ref VERTICES: [Vertex; 8] = [
-        Vertex {
-            position: Vector3::new(-1.0, -1.0, -1.0),
-            normal: Vector3::new(-1.0, -1.0, -1.0).normalize(),
-        },
-        Vertex {
-            position: Vector3::new(1.0, -1.0, -1.0),
-            normal: Vector3::new(1.0, -1.0, -1.0).normalize(),
-        },
-        Vertex {
-            position: Vector3::new(-1.0, 1.0, -1.0),
-            normal: Vector3::new(-1.0, 1.0, -1.0).normalize(),
-        },
-        Vertex {
-            position: Vector3::new(1.0, 1.0, -1.0),
-            normal: Vector3::new(1.0, 1.0, -1.0).normalize(),
-        },
-        Vertex {
-            position: Vector3::new(-1.0, -1.0, 1.0),
-            normal: Vector3::new(-1.0, -1.0, 1.0).normalize(),
-        },
-        Vertex {
-            position: Vector3::new(1.0, -1.0, 1.0),
-            normal: Vector3::new(1.0, -1.0, 1.0).normalize(),
-        },
-        Vertex {
-            position: Vector3::new(-1.0, 1.0, 1.0),
-            normal: Vector3::new(-1.0, 1.0, 1.0).normalize(),
-        },
-        Vertex {
-            position: Vector3::new(1.0, 1.0, 1.0),
-            normal: Vector3::new(1.0, 1.0, 1.0).normalize(),
-        },
-    ];
-}
-
-#[cfg_attr(rustfmt, rustfmt_skip)]
-const INDICES: &[u16] = &[
-    0, 3, 1,
-    0, 2, 3,
-    5, 6, 4,
-    5, 7, 6,
-    1, 4, 0,
-    1, 5, 4,
-    7, 2, 6,
-    7, 3, 2,
-    4, 2, 0,
-    4, 6, 2,
-    1, 7, 5,
-    1, 3, 7,
-];
+const CUBE_OBJ: &[u8] = include_bytes!("cube.obj");
 
 /// Used to manage the details of how render operations are performed.
 pub struct RenderEngine {
@@ -96,8 +45,7 @@ pub struct RenderEngine {
     sc_desc: SwapChainDescriptor,
     swap_chain: SwapChain,
     instance_buffer: BufferWrapper<Instance>,
-    vertex_buffer: BufferWrapper<Vertex>,
-    index_buffer: BufferWrapper<u16>,
+    cube_mesh: Mesh,
     uniforms: Uniforms,
     uniform_buffer: BufferWrapper<Uniforms>,
     // We need to make sure this buffer isn't dropped before this struct is.
@@ -155,12 +103,11 @@ impl RenderEngine {
 
         let swap_chain = device.create_swap_chain(&surface, &sc_desc);
 
-        // setup vertex/index/instance data buffers
+        // setup instance data buffers
         let instance_buffer = BufferWrapper::new(&device, 3, BufferUsage::VERTEX);
 
-        let vertex_buffer = BufferWrapper::from_data(&device, &*VERTICES, BufferUsage::VERTEX);
-
-        let index_buffer = BufferWrapper::from_data(&device, INDICES, BufferUsage::INDEX);
+        // load mesh
+        let cube_mesh = Mesh::load(&device, &mut Cursor::new(CUBE_OBJ))?;
 
         // setup camera
         let camera = Camera {
@@ -272,7 +219,7 @@ impl RenderEngine {
                 stencil_write_mask: 0,
             }),
             vertex_state: VertexStateDescriptor {
-                index_format: IndexFormat::Uint16,
+                index_format: IndexFormat::Uint32,
                 vertex_buffers: &[Instance::desc(), Vertex::desc()],
             },
             sample_count: 1,
@@ -288,8 +235,7 @@ impl RenderEngine {
             sc_desc,
             swap_chain,
             instance_buffer,
-            vertex_buffer,
-            index_buffer,
+            cube_mesh,
             camera,
             uniforms,
             uniform_buffer,
@@ -377,10 +323,9 @@ impl RenderEngine {
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.instance_buffer.buffer(), 0, 0);
-            render_pass.set_vertex_buffer(1, &self.vertex_buffer.buffer(), 0, 0);
-            render_pass.set_index_buffer(&self.index_buffer.buffer(), 0, 0);
+            self.cube_mesh.bind(&mut render_pass, 1);
             render_pass.draw_indexed(
-                0..(self.index_buffer.size() as u32),
+                0..self.cube_mesh.index_len(),
                 0,
                 0..(self.instance_buffer.size() as u32),
             );
@@ -401,7 +346,14 @@ pub trait VertexData {
 #[derive(Debug)]
 pub enum RenderEngineCreationError {
     MissingAdapterError,
+    MeshLoadError(MeshLoadError),
     IOError(io::Error),
+}
+
+impl From<MeshLoadError> for RenderEngineCreationError {
+    fn from(e: MeshLoadError) -> Self {
+        RenderEngineCreationError::MeshLoadError(e)
+    }
 }
 
 impl From<io::Error> for RenderEngineCreationError {
