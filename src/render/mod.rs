@@ -1,6 +1,7 @@
 pub mod buffer;
 pub mod camera;
 pub mod instance;
+pub mod lighting;
 pub mod texture;
 pub mod uniforms;
 pub mod vertex;
@@ -9,10 +10,13 @@ use crate::render::{
     buffer::{BufferWrapper, BufferWriteError},
     camera::Camera,
     instance::Instance,
+    lighting::Lighting,
     texture::TextureWrapper,
     uniforms::Uniforms,
     vertex::Vertex,
 };
+use cgmath::{InnerSpace, Vector3};
+use lazy_static::lazy_static;
 use std::{io, io::Cursor, mem::size_of};
 use wgpu::{
     read_spirv, Adapter, BackendBit, BindGroup, BindGroupDescriptor, BindGroupLayoutDescriptor,
@@ -31,32 +35,42 @@ use winit::{dpi::PhysicalSize, window::Window};
 const SHADER_VERT: &[u8] = include_bytes!("shader.vert.spv");
 const SHADER_FRAG: &[u8] = include_bytes!("shader.frag.spv");
 
-const VERTICES: &[Vertex] = &[
-    Vertex {
-        position: [-1.0, -1.0, -1.0],
-    },
-    Vertex {
-        position: [1.0, -1.0, -1.0],
-    },
-    Vertex {
-        position: [-1.0, 1.0, -1.0],
-    },
-    Vertex {
-        position: [1.0, 1.0, -1.0],
-    },
-    Vertex {
-        position: [-1.0, -1.0, 1.0],
-    },
-    Vertex {
-        position: [1.0, -1.0, 1.0],
-    },
-    Vertex {
-        position: [-1.0, 1.0, 1.0],
-    },
-    Vertex {
-        position: [1.0, 1.0, 1.0],
-    },
-];
+lazy_static! {
+    static ref VERTICES: [Vertex; 8] = [
+        Vertex {
+            position: Vector3::new(-1.0, -1.0, -1.0),
+            normal: Vector3::new(-1.0, -1.0, -1.0).normalize(),
+        },
+        Vertex {
+            position: Vector3::new(1.0, -1.0, -1.0),
+            normal: Vector3::new(1.0, -1.0, -1.0).normalize(),
+        },
+        Vertex {
+            position: Vector3::new(-1.0, 1.0, -1.0),
+            normal: Vector3::new(-1.0, 1.0, -1.0).normalize(),
+        },
+        Vertex {
+            position: Vector3::new(1.0, 1.0, -1.0),
+            normal: Vector3::new(1.0, 1.0, -1.0).normalize(),
+        },
+        Vertex {
+            position: Vector3::new(-1.0, -1.0, 1.0),
+            normal: Vector3::new(-1.0, -1.0, 1.0).normalize(),
+        },
+        Vertex {
+            position: Vector3::new(1.0, -1.0, 1.0),
+            normal: Vector3::new(1.0, -1.0, 1.0).normalize(),
+        },
+        Vertex {
+            position: Vector3::new(-1.0, 1.0, 1.0),
+            normal: Vector3::new(-1.0, 1.0, 1.0).normalize(),
+        },
+        Vertex {
+            position: Vector3::new(1.0, 1.0, 1.0),
+            normal: Vector3::new(1.0, 1.0, 1.0).normalize(),
+        },
+    ];
+}
 
 #[cfg_attr(rustfmt, rustfmt_skip)]
 const INDICES: &[u16] = &[
@@ -86,6 +100,9 @@ pub struct RenderEngine {
     index_buffer: BufferWrapper<u16>,
     uniforms: Uniforms,
     uniform_buffer: BufferWrapper<Uniforms>,
+    // We need to make sure this buffer isn't dropped before this struct is.
+    #[allow(dead_code)]
+    lighting_buffer: BufferWrapper<Lighting>,
     uniform_bind_group: BindGroup,
     depth_texture: TextureWrapper,
     render_pipeline: RenderPipeline,
@@ -141,7 +158,7 @@ impl RenderEngine {
         // setup vertex/index/instance data buffers
         let instance_buffer = BufferWrapper::new(&device, 3, BufferUsage::VERTEX);
 
-        let vertex_buffer = BufferWrapper::from_data(&device, VERTICES, BufferUsage::VERTEX);
+        let vertex_buffer = BufferWrapper::from_data(&device, &*VERTICES, BufferUsage::VERTEX);
 
         let index_buffer = BufferWrapper::from_data(&device, INDICES, BufferUsage::INDEX);
 
@@ -163,26 +180,46 @@ impl RenderEngine {
         // create uniform buffer
         let uniform_buffer = BufferWrapper::from_data(&device, &[uniforms], BufferUsage::UNIFORM);
 
+        // setup lighting values
+        let lighting = Lighting::new();
+        let lighting_buffer = BufferWrapper::from_data(&device, &[lighting], BufferUsage::UNIFORM);
+
         // setup uniform bind group
         let uniform_bind_group_layout =
             device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                bindings: &[BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStage::VERTEX,
-                    ty: BindingType::UniformBuffer { dynamic: false },
-                }],
+                bindings: &[
+                    BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: ShaderStage::VERTEX,
+                        ty: BindingType::UniformBuffer { dynamic: false },
+                    },
+                    BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: ShaderStage::FRAGMENT,
+                        ty: BindingType::UniformBuffer { dynamic: false },
+                    },
+                ],
                 label: Some("uniform_bind_group_layout"),
             });
 
         let uniform_bind_group = device.create_bind_group(&BindGroupDescriptor {
             layout: &uniform_bind_group_layout,
-            bindings: &[Binding {
-                binding: 0,
-                resource: BindingResource::Buffer {
-                    buffer: uniform_buffer.buffer(),
-                    range: 0..size_of::<Uniforms>() as BufferAddress,
+            bindings: &[
+                Binding {
+                    binding: 0,
+                    resource: BindingResource::Buffer {
+                        buffer: uniform_buffer.buffer(),
+                        range: 0..size_of::<Uniforms>() as BufferAddress,
+                    },
                 },
-            }],
+                Binding {
+                    binding: 1,
+                    resource: BindingResource::Buffer {
+                        buffer: lighting_buffer.buffer(),
+                        range: 0..size_of::<Lighting>() as BufferAddress,
+                    },
+                },
+            ],
             label: Some("uniform_bind_group"),
         });
 
@@ -256,6 +293,7 @@ impl RenderEngine {
             camera,
             uniforms,
             uniform_buffer,
+            lighting_buffer,
             uniform_bind_group,
             depth_texture,
             render_pipeline,

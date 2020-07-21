@@ -578,6 +578,7 @@ dependencies = [
  "bytemuck",
  "cgmath",
  "futures",
+ "lazy_static",
  "wgpu",
  "winit",
 ]
