@@ -14,6 +14,8 @@ use winit::{
 };
 
 fn main() {
+    env_logger::init();
+
     let mut flow = Flow::new(KPipes::init);
     flow.event(KPipes::event);
     flow.update(KPipes::update);
