@@ -73,7 +73,7 @@ impl KPipes {
                 let instance = Instance {
                     color: (self.instance as f32 / 4.0, 0.1, 0.2).into(),
                     model: Matrix4::from_scale(0.5)
-                        * Matrix4::from_translation((0.0, self.instance as f32 * 2.0, 0.0).into()),
+                        * Matrix4::from_translation((0.0, self.instance as f32, 0.0).into()),
                 };
 
                 if block_on(self.renderer.add_instance(instance)).is_ok() {

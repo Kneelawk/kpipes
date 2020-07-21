@@ -35,7 +35,7 @@ use winit::{dpi::PhysicalSize, window::Window};
 const SHADER_VERT: &[u8] = include_bytes!("shader.vert.spv");
 const SHADER_FRAG: &[u8] = include_bytes!("shader.frag.spv");
 
-const CUBE_OBJ: &[u8] = include_bytes!("cube.obj");
+const CUBE_OBJ: &[u8] = include_bytes!("kpipe-single.obj");
 
 /// Used to manage the details of how render operations are performed.
 pub struct RenderEngine {
