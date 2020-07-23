@@ -131,8 +131,8 @@ impl KPipes {
     fn update(&mut self, delta: Duration) -> Option<ControlFlow> {
         self.rot += delta.as_secs_f32() * 0.5;
 
-        if rot >= PI * 2.0 {
-            rot -= PI * 2.0;
+        if self.rot >= PI * 2.0 {
+            self.rot -= PI * 2.0;
         }
 
         let x = self.rot.sin() * 5.0;
