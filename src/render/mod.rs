@@ -1,6 +1,7 @@
 pub mod buffer;
 pub mod camera;
 pub mod instance;
+pub mod instance_manager;
 pub mod lighting;
 pub mod mesh;
 pub mod texture;
@@ -11,8 +12,8 @@ use crate::render::{
     buffer::{BufferWrapper, BufferWriteError},
     camera::Camera,
     instance::Instance,
+    instance_manager::{InstanceManager, InstanceManagerCreationError},
     lighting::Lighting,
-    mesh::{Mesh, MeshLoadError},
     texture::TextureWrapper,
     uniforms::Uniforms,
     vertex::Vertex,
@@ -44,8 +45,6 @@ pub struct RenderEngine {
     queue: Queue,
     sc_desc: SwapChainDescriptor,
     swap_chain: SwapChain,
-    instance_buffer: BufferWrapper<Instance>,
-    cube_mesh: Mesh,
     uniforms: Uniforms,
     uniform_buffer: BufferWrapper<Uniforms>,
     // We need to make sure this buffer isn't dropped before this struct is.
@@ -58,6 +57,7 @@ pub struct RenderEngine {
 
     /// This render engine's camera in 3d space.
     pub camera: Camera,
+    pub cubes: InstanceManager,
 }
 
 impl RenderEngine {
@@ -103,11 +103,9 @@ impl RenderEngine {
 
         let swap_chain = device.create_swap_chain(&surface, &sc_desc);
 
-        // setup instance data buffers
-        let instance_buffer = BufferWrapper::new(&device, 3, BufferUsage::VERTEX);
-
-        // load mesh
-        let (cube_mesh, mut cube_cbs) = Mesh::load(&device, &mut Cursor::new(CUBE_OBJ))?;
+        // setup cube instance manager
+        let (cubes, mut cubes_cb) =
+            InstanceManager::from_obj(&device, &mut Cursor::new(CUBE_OBJ), 3)?;
 
         // setup camera
         let camera = Camera {
@@ -230,7 +228,7 @@ impl RenderEngine {
         });
 
         let mut submissions = vec![uniform_cb, lighting_cb];
-        submissions.append(&mut cube_cbs);
+        submissions.append(&mut cubes_cb);
         queue.submit(&submissions);
 
         // return the result
@@ -240,8 +238,7 @@ impl RenderEngine {
             queue,
             sc_desc,
             swap_chain,
-            instance_buffer,
-            cube_mesh,
+            cubes,
             camera,
             uniforms,
             uniform_buffer,
@@ -278,17 +275,15 @@ impl RenderEngine {
 
     /// Adds an instance to this render engine.
     pub async fn add_instance(&mut self, instance: Instance) -> Result<(), BufferWriteError> {
-        self.queue.submit(&[self
-            .instance_buffer
-            .append(&self.device, &[instance])
-            .await?]);
+        self.queue
+            .submit(&self.cubes.add_instance(&self.device, instance).await?);
 
         Ok(())
     }
 
     /// Removes all instance from this render engine.
     pub fn clear_instances(&mut self) {
-        self.instance_buffer.clear();
+        self.cubes.clear_instances();
     }
 
     /// Performs a render.
@@ -328,13 +323,7 @@ impl RenderEngine {
 
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.instance_buffer.buffer(), 0, 0);
-            self.cube_mesh.bind(&mut render_pass, 1);
-            render_pass.draw_indexed(
-                0..self.cube_mesh.index_len(),
-                0,
-                0..(self.instance_buffer.size() as u32),
-            );
+            self.cubes.draw(&mut render_pass);
         }
 
         self.queue.submit(&[encoder.finish()]);
@@ -352,13 +341,13 @@ pub trait VertexData {
 #[derive(Debug)]
 pub enum RenderEngineCreationError {
     MissingAdapterError,
-    MeshLoadError(MeshLoadError),
+    InstanceManagerCreationError(InstanceManagerCreationError),
     IOError(io::Error),
 }
 
-impl From<MeshLoadError> for RenderEngineCreationError {
-    fn from(e: MeshLoadError) -> Self {
-        RenderEngineCreationError::MeshLoadError(e)
+impl From<InstanceManagerCreationError> for RenderEngineCreationError {
+    fn from(e: InstanceManagerCreationError) -> Self {
+        RenderEngineCreationError::InstanceManagerCreationError(e)
     }
 }
 
