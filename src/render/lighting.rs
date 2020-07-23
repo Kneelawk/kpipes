@@ -10,6 +10,15 @@ pub struct Light {
     pub strength: f32,
 }
 
+impl Light {
+    pub fn new(direction: Vector3<f32>, strength: f32) -> Light {
+        Light {
+            direction: direction.normalize(),
+            strength
+        }
+    }
+}
+
 /// Manages the scene's global lights.
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -24,19 +33,10 @@ unsafe impl Pod for Lighting {}
 unsafe impl Zeroable for Lighting {}
 
 impl Lighting {
-    pub fn new() -> Lighting {
+    pub fn new(lights: [Light; NUM_LIGHTS], ambient_light: f32) -> Lighting {
         Lighting {
-            lights: [
-                Light {
-                    direction: Vector3::new(-2.0, 3.0, -4.0).normalize(),
-                    strength: 1.0,
-                },
-                Light {
-                    direction: Vector3::new(1.0, 2.0, 3.0).normalize(),
-                    strength: 0.6,
-                },
-            ],
-            ambient_light: 0.2,
+            lights,
+            ambient_light,
         }
     }
 }

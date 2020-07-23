@@ -69,6 +69,7 @@ impl RenderEngine {
     /// creating the engine.
     pub async fn new<B: BufRead>(
         window: &Window,
+        lighting: Lighting,
         instances: &mut [B],
         instance_capacity: BufferAddress,
     ) -> Result<RenderEngine, RenderEngineCreationError> {
@@ -140,7 +141,6 @@ impl RenderEngine {
         queue_submissions.push(uniform_cb);
 
         // setup lighting values
-        let lighting = Lighting::new();
         let (lighting_buffer, lighting_cb) =
             BufferWrapper::from_data(&device, &[lighting], BufferUsage::UNIFORM);
         queue_submissions.push(lighting_cb);

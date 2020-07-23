@@ -1,7 +1,10 @@
 mod flow;
 mod render;
 
-use crate::render::instance::Instance;
+use crate::render::{
+    instance::Instance,
+    lighting::{Light, Lighting},
+};
 use cgmath::Matrix4;
 use flow::Flow;
 use futures::executor::block_on;
@@ -39,8 +42,19 @@ struct KPipes {
 impl KPipes {
     fn init(window: &Window) -> KPipes {
         KPipes {
-            renderer: block_on(RenderEngine::new(window, &mut [Cursor::new(SINGLE_OBJ)], 3))
-                .unwrap(),
+            renderer: block_on(RenderEngine::new(
+                window,
+                Lighting::new(
+                    [
+                        Light::new((-2.0, 3.0, -2.0).into(), 1.0),
+                        Light::new((1.0, 2.0, 3.0).into(), 0.6),
+                    ],
+                    0.2,
+                ),
+                &mut [Cursor::new(SINGLE_OBJ)],
+                3,
+            ))
+            .unwrap(),
             rot: 0.0,
             instance: 0,
             adding: true,
