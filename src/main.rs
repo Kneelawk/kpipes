@@ -46,7 +46,7 @@ impl KPipes {
                 window,
                 Lighting::new(
                     [
-                        Light::new((-2.0, 3.0, -2.0).into(), 1.0),
+                        Light::new((-2.0, 3.0, -4.0).into(), 1.0),
                         Light::new((1.0, 2.0, 3.0).into(), 0.6),
                     ],
                     0.2,
