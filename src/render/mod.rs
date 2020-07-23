@@ -333,9 +333,9 @@ impl RenderEngine {
                     load_op: LoadOp::Clear,
                     store_op: StoreOp::Store,
                     clear_color: Color {
-                        r: 0.1,
-                        g: 0.1,
-                        b: 0.1,
+                        r: 0.02,
+                        g: 0.02,
+                        b: 0.02,
                         a: 1.0,
                     },
                 }],

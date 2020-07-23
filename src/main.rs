@@ -129,16 +129,16 @@ impl KPipes {
     }
 
     fn update(&mut self, delta: Duration) -> Option<ControlFlow> {
-        self.rot += delta.as_secs_f32() * 0.5;
+        self.rot += delta.as_secs_f32() * 0.05;
 
         if self.rot >= PI * 2.0 {
             self.rot -= PI * 2.0;
         }
 
-        let x = self.rot.sin() * 5.0;
-        let z = self.rot.cos() * 5.0;
+        let x = self.rot.sin() * 22.0;
+        let z = self.rot.cos() * 22.0;
 
-        self.renderer.camera.eye = (x, 5.0, z).into();
+        self.renderer.camera.eye = (x, 15.0, z).into();
 
         block_on(self.renderer.update_camera()).unwrap();
 
