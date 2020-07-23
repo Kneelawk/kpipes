@@ -6,12 +6,14 @@ use cgmath::Matrix4;
 use flow::Flow;
 use futures::executor::block_on;
 use render::RenderEngine;
-use std::time::Duration;
+use std::{io::Cursor, time::Duration};
 use winit::{
     event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent},
     event_loop::ControlFlow,
     window::Window,
 };
+
+const SINGLE_OBJ: &[u8] = include_bytes!("kpipe-single.obj");
 
 fn main() {
     env_logger::init();
@@ -37,7 +39,8 @@ struct KPipes {
 impl KPipes {
     fn init(window: &Window) -> KPipes {
         KPipes {
-            renderer: block_on(RenderEngine::new(window)).unwrap(),
+            renderer: block_on(RenderEngine::new(window, &mut [Cursor::new(SINGLE_OBJ)], 3))
+                .unwrap(),
             rot: 0.0,
             instance: 0,
             adding: true,
@@ -78,19 +81,19 @@ impl KPipes {
                 };
 
                 if self.adding {
-                    if block_on(self.renderer.add_instances(&[instance])).is_ok() {
+                    if block_on(self.renderer.add_instances(0, &[instance])).is_ok() {
                         self.instance += 1;
                     } else {
                         self.adding = false;
-                        self.renderer.remove_instances(1).unwrap();
+                        self.renderer.remove_instances(0, 1).unwrap();
                         self.instance -= 1;
                     }
                 } else {
-                    if self.renderer.remove_instances(1).is_ok() {
+                    if self.renderer.remove_instances(0, 1).is_ok() {
                         self.instance -= 1;
                     } else {
                         self.adding = true;
-                        block_on(self.renderer.add_instances(&[instance])).unwrap();
+                        block_on(self.renderer.add_instances(0, &[instance])).unwrap();
                         self.instance += 1;
                     }
                 }
@@ -102,7 +105,7 @@ impl KPipes {
                 virtual_keycode: Some(VirtualKeyCode::C),
                 ..
             } => {
-                self.renderer.clear_instances();
+                self.renderer.clear_instances(0);
                 self.instance = 0;
 
                 None

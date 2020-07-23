@@ -18,7 +18,11 @@ use crate::render::{
     uniforms::Uniforms,
     vertex::Vertex,
 };
-use std::{io, io::Cursor, mem::size_of};
+use std::{
+    io,
+    io::{BufRead, Cursor},
+    mem::size_of,
+};
 use wgpu::{
     read_spirv, Adapter, BackendBit, BindGroup, BindGroupDescriptor, BindGroupLayoutDescriptor,
     BindGroupLayoutEntry, Binding, BindingResource, BindingType, BlendDescriptor, BufferAddress,
@@ -36,8 +40,6 @@ use winit::{dpi::PhysicalSize, window::Window};
 const SHADER_VERT: &[u8] = include_bytes!("shader.vert.spv");
 const SHADER_FRAG: &[u8] = include_bytes!("shader.frag.spv");
 
-const CUBE_OBJ: &[u8] = include_bytes!("kpipe-single.obj");
-
 /// Used to manage the details of how render operations are performed.
 pub struct RenderEngine {
     surface: Surface,
@@ -45,6 +47,7 @@ pub struct RenderEngine {
     queue: Queue,
     sc_desc: SwapChainDescriptor,
     swap_chain: SwapChain,
+    instance_groups: Vec<InstanceManager>,
     uniforms: Uniforms,
     uniform_buffer: BufferWrapper<Uniforms>,
     // We need to make sure this buffer isn't dropped before this struct is.
@@ -57,7 +60,6 @@ pub struct RenderEngine {
 
     /// This render engine's camera in 3d space.
     pub camera: Camera,
-    pub cubes: InstanceManager,
 }
 
 impl RenderEngine {
@@ -65,7 +67,11 @@ impl RenderEngine {
     ///
     /// Will return a RenderEngineCreationError if an error occurs while
     /// creating the engine.
-    pub async fn new(window: &Window) -> Result<RenderEngine, RenderEngineCreationError> {
+    pub async fn new<B: BufRead>(
+        window: &Window,
+        instances: &mut [B],
+        instance_capacity: BufferAddress,
+    ) -> Result<RenderEngine, RenderEngineCreationError> {
         let window_size = window.inner_size();
 
         // setup surface
@@ -82,7 +88,7 @@ impl RenderEngine {
         .await
         .ok_or(RenderEngineCreationError::MissingAdapterError)?;
 
-        // setup device
+        // setup device and queue
         let (device, queue) = adapter
             .request_device(&DeviceDescriptor {
                 extensions: Extensions {
@@ -91,6 +97,7 @@ impl RenderEngine {
                 limits: Default::default(),
             })
             .await;
+        let mut queue_submissions = vec![];
 
         // setup swap chain
         let sc_desc = SwapChainDescriptor {
@@ -103,9 +110,14 @@ impl RenderEngine {
 
         let swap_chain = device.create_swap_chain(&surface, &sc_desc);
 
-        // setup cube instance manager
-        let (cubes, mut cubes_cb) =
-            InstanceManager::from_obj(&device, &mut Cursor::new(CUBE_OBJ), 3)?;
+        // setup instance managers
+        let mut instance_groups = vec![];
+        for instance_data in instances {
+            let (instance_manager, mut cb) =
+                InstanceManager::from_obj(&device, instance_data, instance_capacity)?;
+            instance_groups.push(instance_manager);
+            queue_submissions.append(&mut cb);
+        }
 
         // setup camera
         let camera = Camera {
@@ -125,11 +137,13 @@ impl RenderEngine {
         // create uniform buffer
         let (uniform_buffer, uniform_cb) =
             BufferWrapper::from_data(&device, &[uniforms], BufferUsage::UNIFORM);
+        queue_submissions.push(uniform_cb);
 
         // setup lighting values
         let lighting = Lighting::new();
         let (lighting_buffer, lighting_cb) =
             BufferWrapper::from_data(&device, &[lighting], BufferUsage::UNIFORM);
+        queue_submissions.push(lighting_cb);
 
         // setup uniform bind group
         let uniform_bind_group_layout =
@@ -227,9 +241,8 @@ impl RenderEngine {
             alpha_to_coverage_enabled: false,
         });
 
-        let mut submissions = vec![uniform_cb, lighting_cb];
-        submissions.append(&mut cubes_cb);
-        queue.submit(&submissions);
+        // submit initial commands
+        queue.submit(&queue_submissions);
 
         // return the result
         Ok(RenderEngine {
@@ -238,7 +251,7 @@ impl RenderEngine {
             queue,
             sc_desc,
             swap_chain,
-            cubes,
+            instance_groups,
             camera,
             uniforms,
             uniform_buffer,
@@ -274,21 +287,32 @@ impl RenderEngine {
     }
 
     /// Adds instances to this render engine.
-    pub async fn add_instances(&mut self, instances: &[Instance]) -> Result<(), BufferWriteError> {
-        self.queue
-            .submit(&self.cubes.add_instances(&self.device, instances).await?);
+    pub async fn add_instances(
+        &mut self,
+        group_index: usize,
+        instances: &[Instance],
+    ) -> Result<(), BufferWriteError> {
+        self.queue.submit(
+            &self.instance_groups[group_index]
+                .add_instances(&self.device, instances)
+                .await?,
+        );
 
         Ok(())
     }
 
     /// Removes a number of this render engine's last instances.
-    pub fn remove_instances(&mut self, instances: BufferAddress) -> Result<(), BufferRemoveError> {
-        self.cubes.remove_instances(instances)
+    pub fn remove_instances(
+        &mut self,
+        group_index: usize,
+        instances: BufferAddress,
+    ) -> Result<(), BufferRemoveError> {
+        self.instance_groups[group_index].remove_instances(instances)
     }
 
     /// Removes all instance from this render engine.
-    pub fn clear_instances(&mut self) {
-        self.cubes.clear_instances();
+    pub fn clear_instances(&mut self, group_index: usize) {
+        self.instance_groups[group_index].clear_instances();
     }
 
     /// Performs a render.
@@ -328,7 +352,10 @@ impl RenderEngine {
 
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-            self.cubes.draw(&mut render_pass);
+
+            for group in self.instance_groups.iter() {
+                group.draw(&mut render_pass);
+            }
         }
 
         self.queue.submit(&[encoder.finish()]);
