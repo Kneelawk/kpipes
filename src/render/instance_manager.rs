@@ -5,6 +5,7 @@ use crate::render::{
 };
 use std::io::BufRead;
 use wgpu::{BufferAddress, BufferUsage, CommandBuffer, Device, RenderPass};
+use crate::render::buffer::BufferRemoveError;
 
 /// Manages a set of instances of a mesh.
 pub struct InstanceManager {
@@ -33,15 +34,20 @@ impl InstanceManager {
         ))
     }
 
-    /// Appends an instance to this InstanceManager.
-    pub async fn add_instance(
+    /// Appends instances to this InstanceManager.
+    pub async fn add_instances(
         &mut self,
         device: &Device,
-        instance: Instance,
+        instances: &[Instance],
     ) -> Result<Vec<CommandBuffer>, BufferWriteError> {
         Ok(vec![
-            self.instance_buffer.append(device, &[instance]).await?,
+            self.instance_buffer.append(device, instances).await?,
         ])
+    }
+
+    /// Removes a number of this InstanceManager's last instances.
+    pub fn remove_instances(&mut self, instances: BufferAddress) -> Result<(), BufferRemoveError> {
+        self.instance_buffer.remove_last(instances)
     }
 
     /// Removes all instances from this InstanceManager.
@@ -56,7 +62,7 @@ impl InstanceManager {
         render_pass.draw_indexed(
             0..self.mesh.index_len(),
             0,
-            0..(self.instance_buffer.size() as u32),
+            0..(self.instance_buffer.len() as u32),
         );
     }
 }

@@ -9,7 +9,7 @@ pub mod uniforms;
 pub mod vertex;
 
 use crate::render::{
-    buffer::{BufferWrapper, BufferWriteError},
+    buffer::{BufferRemoveError, BufferWrapper, BufferWriteError},
     camera::Camera,
     instance::Instance,
     instance_manager::{InstanceManager, InstanceManagerCreationError},
@@ -273,12 +273,17 @@ impl RenderEngine {
         Ok(())
     }
 
-    /// Adds an instance to this render engine.
-    pub async fn add_instance(&mut self, instance: Instance) -> Result<(), BufferWriteError> {
+    /// Adds instances to this render engine.
+    pub async fn add_instances(&mut self, instances: &[Instance]) -> Result<(), BufferWriteError> {
         self.queue
-            .submit(&self.cubes.add_instance(&self.device, instance).await?);
+            .submit(&self.cubes.add_instances(&self.device, instances).await?);
 
         Ok(())
+    }
+
+    /// Removes a number of this render engine's last instances.
+    pub fn remove_instances(&mut self, instances: BufferAddress) -> Result<(), BufferRemoveError> {
+        self.cubes.remove_instances(instances)
     }
 
     /// Removes all instance from this render engine.

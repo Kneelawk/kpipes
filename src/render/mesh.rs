@@ -55,7 +55,7 @@ impl Mesh {
     }
 
     pub fn index_len(&self) -> u32 {
-        self.index_buffer.size() as u32
+        self.index_buffer.len() as u32
     }
 
     /// Bind this model for a subsequent draw call.

@@ -82,7 +82,7 @@ impl<D: Encodable + Sized> BufferWrapper<D> {
     }
 
     /// Gets this buffer's size.
-    pub fn size(&self) -> BufferAddress {
+    pub fn len(&self) -> BufferAddress {
         self.size
     }
 
@@ -94,6 +94,16 @@ impl<D: Encodable + Sized> BufferWrapper<D> {
     /// Effectively clears the data from this buffer.
     pub fn clear(&mut self) {
         self.size = 0;
+    }
+
+    /// Removes a number of instances from the end of this buffer.
+    pub fn remove_last(&mut self, instances: BufferAddress) -> Result<(), BufferRemoveError> {
+        if self.size >= instances {
+            self.size -= instances;
+            Ok(())
+        } else {
+            Err(BufferRemoveError::InsufficientSize)
+        }
     }
 
     /// Sets the contents of this buffer.
@@ -211,6 +221,12 @@ impl From<BufferAsyncErr> for BufferWriteError {
     fn from(_: BufferAsyncErr) -> Self {
         BufferWriteError::BufferAsyncError
     }
+}
+
+/// Error potentially returned from remove operations.
+#[derive(Debug, Copy, Clone)]
+pub enum BufferRemoveError {
+    InsufficientSize,
 }
 
 /// Trait used to help encode objects to buffers.

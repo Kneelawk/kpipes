@@ -31,6 +31,7 @@ struct KPipes {
     renderer: RenderEngine,
     rot: f32,
     instance: u32,
+    adding: bool,
 }
 
 impl KPipes {
@@ -39,6 +40,7 @@ impl KPipes {
             renderer: block_on(RenderEngine::new(window)).unwrap(),
             rot: 0.0,
             instance: 0,
+            adding: true,
         }
     }
 
@@ -72,16 +74,36 @@ impl KPipes {
             } => {
                 let instance = Instance {
                     color: (self.instance as f32 / 4.0, 0.1, 0.2).into(),
-                    model: Matrix4::from_scale(0.5)
-                        * Matrix4::from_translation((0.0, self.instance as f32, 0.0).into()),
+                    model: Matrix4::from_translation((0.0, self.instance as f32, 0.0).into()),
                 };
 
-                if block_on(self.renderer.add_instance(instance)).is_ok() {
-                    self.instance += 1;
+                if self.adding {
+                    if block_on(self.renderer.add_instances(&[instance])).is_ok() {
+                        self.instance += 1;
+                    } else {
+                        self.adding = false;
+                        self.renderer.remove_instances(1).unwrap();
+                        self.instance -= 1;
+                    }
                 } else {
-                    self.renderer.clear_instances();
-                    self.instance = 0;
+                    if self.renderer.remove_instances(1).is_ok() {
+                        self.instance -= 1;
+                    } else {
+                        self.adding = true;
+                        block_on(self.renderer.add_instances(&[instance])).unwrap();
+                        self.instance += 1;
+                    }
                 }
+
+                None
+            }
+            KeyboardInput {
+                state: ElementState::Pressed,
+                virtual_keycode: Some(VirtualKeyCode::C),
+                ..
+            } => {
+                self.renderer.clear_instances();
+                self.instance = 0;
 
                 None
             }
