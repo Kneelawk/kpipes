@@ -1,0 +1,55 @@
+dist: trusty
+language: rust
+services: docker
+sudo: required
+
+env:
+  global:
+    - CRATE_NAME=kpipes-desktop
+
+matrix:
+  include:
+    - env: TARGET=x86_64-unknown-linux-gnu
+    - env: TARGET=x86_64-apple-darwin
+      os: osx
+
+before_install:
+  - set -e
+  - rustup self update
+  - sh ci/before_install.sh
+
+install:
+  - sh ci/install.sh
+  - source ~/.cargo/env || true
+
+script:
+  - bash ci/script.sh
+
+after_script:
+  - set +e
+
+before_deploy:
+  - sh ci/before_deploy.sh
+
+deploy:
+  api_key:
+    secure: "peClKNcfuEAzuulY+lned6cIgQTGFtxFczqSauU7gWr7xdWgJJhRF43gTigT2VVRoE1xGei2SR99c84BTiYggIJ6NRIRBnU2mY9oB349h/jy/5etZgSR3r2+LZLHinR99nOnlF7HLo9gtlkxLPP1h5UuT2LfWKJx+KUh+EXLHcp//fBsM8BuhbhbKyG8Js3cpeDGPQvummI4kc704bIFKJRtXCbY8eqrFXSwaOnHR0JUVvhPPBTV9Oxrzbv+5JDUzQb/krzKLkrqIuYscCV4XXXzMkgpiAL3sdX7hgtzoPWLGAbze2xLARx9HmpIh5jUR1hWuFfI6D0dB9VhVcQGmF2uvNfiUZDk0W7t9SrFAK0yGBxSpZaDTlsXDPFuDKDOvoROiNxEe4rjgyVQ2vMJRT9f6788CYXy+5K40o+Z9kbjjotzLTOno6/hBODJFIkqbdltoPGtRbRrx1K7m53ekQh4oRqKvrmZRxl8HvWH4wtaCXJFmUnoqPbqiSiOM0Rh6ATlH4uBZMPTz+ugls5+85zpIiuxwGIw4ZJ5wH87ylSrorgiyNc+L7btrhEzIFa6DafR3r4Mr+M1LKz8TeIQMwl5VYE5xQQrOSaYgv/mTtIZS/ziQ1CE4UMCv4k320kTp9Wph8rOnfZ8PPu7E7jmcwixOFpK73bUYq25R1rJoK0="
+  file_glob: true
+  file: $CRATE_NAME-$TRAVIS_TAG-$TARGET.*
+  on:
+    tags: true
+  provider: releases
+  skip_cleanup: true
+
+cache: cargo
+before_cache:
+  - chmod -R a+r $HOME/.cargo
+
+branches:
+  only:
+    - /^v\d+\.\d+\.\d+.*$/
+    - master
+
+notifications:
+  email:
+    on_success: never
