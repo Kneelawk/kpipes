@@ -26,7 +26,7 @@ use log::info;
 use rand::{thread_rng, Rng};
 use render::RenderEngine;
 use std::{f32::consts::PI, io::Cursor, time::Duration};
-use wgpu::{TextureFormat, TextureView};
+use wgpu::{CommandBuffer, TextureFormat, TextureView};
 
 /// How long to wait before causing a pipe to grow.
 const GROWTH_DURATION: Duration = Duration::from_millis(50);
@@ -127,11 +127,13 @@ impl KPipes {
     pub fn update(&mut self, render_context: RenderContext<'_>, delta: Duration) -> FlowControl {
         info!("Update FPS: {}", 1.0 / delta.as_secs_f32());
 
+        let mut commands = ArrayVec::new();
+
         // update pipes
         self.time_since_growth += delta;
         if self.time_since_growth > GROWTH_DURATION {
             self.time_since_growth -= GROWTH_DURATION;
-            self.grow(render_context);
+            self.grow(render_context, &mut commands);
         }
 
         // update camera
@@ -146,7 +148,11 @@ impl KPipes {
 
         self.renderer.camera.eye = (x, 15.0, z).into();
 
-        block_on(self.renderer.update_camera(render_context)).unwrap();
+        let camera_cb = block_on(self.renderer.update_camera(render_context)).unwrap();
+
+        commands.push(camera_cb);
+
+        render_context.queue.submit(&commands);
 
         FlowControl::None
     }
@@ -164,18 +170,27 @@ impl KPipes {
 
     /// Performs a growth step (either growing the current pipe, starting a new
     /// one, or clearing the screen).
-    fn grow(&mut self, render_context: RenderContext<'_>) {
+    fn grow(
+        &mut self,
+        render_context: RenderContext<'_>,
+        commands: &mut ArrayVec<[CommandBuffer; 3]>,
+    ) {
         if let Some(prev) = self.previous_segment {
-            self.grow_existing(render_context, prev);
+            self.grow_existing(render_context, prev, commands);
         } else {
-            self.new_pipe(render_context);
+            self.new_pipe(render_context, commands);
         };
     }
 
     /// Places a pipe segment connected to an existing pipe, changing existing
     /// pipe models as needed. Will start a new pipe if the current pipe is
     /// boxed in.
-    fn grow_existing(&mut self, render_context: RenderContext<'_>, prev: PreviousSegment) {
+    fn grow_existing(
+        &mut self,
+        render_context: RenderContext<'_>,
+        prev: PreviousSegment,
+        commands: &mut ArrayVec<[CommandBuffer; 3]>,
+    ) {
         let mut directions = ArrayVec::<[Direction; 6]>::new();
 
         for direction in Direction::into_enum_iter() {
@@ -187,18 +202,18 @@ impl KPipes {
         }
 
         if directions.is_empty() {
-            self.new_pipe(render_context);
+            self.new_pipe(render_context, commands);
         } else {
             let mut rand = thread_rng();
 
             let direction: Direction = directions[rand.gen_range(0, directions.len())];
             let location = direction.offset(prev.location);
 
-            match prev.group {
+            let prev_cb = match prev.group {
                 0 => {
                     self.renderer.remove_instances(0, 1).unwrap();
                     block_on(self.renderer.add_instances(
-                        render_context,
+                        render_context.device,
                         1,
                         &[Instance {
                             color: self.current_color,
@@ -206,26 +221,26 @@ impl KPipes {
                                 * starting_direction_matrix(direction),
                         }],
                     ))
-                    .unwrap();
+                    .unwrap()
                 }
                 4 => {
                     self.renderer.remove_instances(4, 1).unwrap();
                     let (rot_matrix, group) = direction_matrix(prev.direction, direction);
                     block_on(self.renderer.add_instances(
-                        render_context,
+                        render_context.device,
                         group,
                         &[Instance {
                             color: self.current_color,
                             model: location_matrix(prev.location) * rot_matrix,
                         }],
                     ))
-                    .unwrap();
+                    .unwrap()
                 }
                 _ => unreachable!("Invalid previous group type: {}", prev.group),
-            }
+            };
 
-            block_on(self.renderer.add_instances(
-                render_context,
+            let endpoint_cb = block_on(self.renderer.add_instances(
+                render_context.device,
                 4,
                 &[Instance {
                     color: self.current_color,
@@ -233,6 +248,9 @@ impl KPipes {
                 }],
             ))
             .unwrap();
+
+            commands.push(prev_cb);
+            commands.push(endpoint_cb);
 
             self.spaces.set_vec(location);
             self.previous_segment = Some(PreviousSegment {
@@ -245,7 +263,11 @@ impl KPipes {
 
     /// Starts growing a new pipe. Will clear the pipes and start over if a
     /// suitable location cannot be found.
-    fn new_pipe(&mut self, render_context: RenderContext<'_>) {
+    fn new_pipe(
+        &mut self,
+        render_context: RenderContext<'_>,
+        commands: &mut ArrayVec<[CommandBuffer; 3]>,
+    ) {
         let mut attempts = 0;
 
         let location = loop {
@@ -269,8 +291,8 @@ impl KPipes {
 
         self.current_color = random_color();
 
-        block_on(self.renderer.add_instances(
-            render_context,
+        let start_cb = block_on(self.renderer.add_instances(
+            render_context.device,
             0,
             &[Instance {
                 color: self.current_color,
@@ -278,6 +300,8 @@ impl KPipes {
             }],
         ))
         .unwrap();
+
+        commands.push(start_cb);
 
         self.spaces.set_vec(location);
         self.previous_segment = Some(PreviousSegment {

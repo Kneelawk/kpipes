@@ -9,6 +9,7 @@ pub mod uniforms;
 pub mod vertex;
 
 use crate::{
+    messages::FrameSize,
     render::{
         buffer::{BufferRemoveError, BufferWrapper, BufferWriteError},
         camera::Camera,
@@ -29,15 +30,14 @@ use std::{
 use wgpu::{
     read_spirv, BindGroup, BindGroupDescriptor, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
     Binding, BindingResource, BindingType, BlendDescriptor, BufferAddress, BufferUsage, Color,
-    ColorStateDescriptor, ColorWrite, CommandEncoderDescriptor, CompareFunction, CullMode,
-    DepthStencilStateDescriptor, FrontFace, IndexFormat, LoadOp, PipelineLayoutDescriptor,
-    PrimitiveTopology, ProgrammableStageDescriptor, RasterizationStateDescriptor,
-    RenderPassColorAttachmentDescriptor, RenderPassDepthStencilAttachmentDescriptor,
-    RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor, ShaderStage,
-    StencilStateFaceDescriptor, StoreOp, TextureFormat, TextureView, VertexBufferDescriptor,
-    VertexStateDescriptor,
+    ColorStateDescriptor, ColorWrite, CommandBuffer, CommandEncoderDescriptor, CompareFunction,
+    CullMode, DepthStencilStateDescriptor, Device, FrontFace, IndexFormat, LoadOp,
+    PipelineLayoutDescriptor, PrimitiveTopology, ProgrammableStageDescriptor,
+    RasterizationStateDescriptor, RenderPassColorAttachmentDescriptor,
+    RenderPassDepthStencilAttachmentDescriptor, RenderPassDescriptor, RenderPipeline,
+    RenderPipelineDescriptor, ShaderStage, StencilStateFaceDescriptor, StoreOp, TextureFormat,
+    TextureView, VertexBufferDescriptor, VertexStateDescriptor,
 };
-use crate::messages::FrameSize;
 
 const SHADER_VERT: &[u8] = include_bytes!("shader.vert.spv");
 const SHADER_FRAG: &[u8] = include_bytes!("shader.frag.spv");
@@ -234,31 +234,25 @@ impl RenderEngine {
     pub async fn update_camera(
         &mut self,
         render_context: RenderContext<'_>,
-    ) -> Result<(), BufferWriteError> {
+    ) -> Result<CommandBuffer, BufferWriteError> {
         self.uniforms.update_camera(&self.camera);
 
-        render_context.queue.submit(&[self
+        Ok(self
             .uniform_buffer
             .replace_all(render_context.device, &[self.uniforms])
-            .await?]);
-
-        Ok(())
+            .await?)
     }
 
     /// Adds instances to this render engine.
     pub async fn add_instances(
         &mut self,
-        render_context: RenderContext<'_>,
+        device: &Device,
         group_index: usize,
         instances: &[Instance],
-    ) -> Result<(), BufferWriteError> {
-        render_context.queue.submit(
-            &self.instance_groups[group_index]
-                .add_instances(render_context.device, instances)
-                .await?,
-        );
-
-        Ok(())
+    ) -> Result<CommandBuffer, BufferWriteError> {
+        Ok(self.instance_groups[group_index]
+            .add_instances(device, instances)
+            .await?)
     }
 
     /// Removes a number of this render engine's last instances.
