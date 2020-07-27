@@ -141,7 +141,7 @@ impl KPipes {
         }
 
         // update camera
-        self.rot += delta.as_secs_f32() * 0.05;
+        self.rot += delta.as_secs_f32() * 0.08;
 
         if self.rot >= PI * 2.0 {
             self.rot -= PI * 2.0;
