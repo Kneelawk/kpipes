@@ -703,20 +703,23 @@ dependencies = [
  "bytemuck",
  "cgmath",
  "enum-iterator",
- "env_logger",
  "futures",
  "log",
  "rand 0.7.3",
  "tobj",
  "wgpu",
- "winit",
 ]
 
 [[package]]
 name = "kpipes-desktop"
 version = "0.1.0"
 dependencies = [
+ "env_logger",
+ "futures",
  "kpipes-core",
+ "log",
+ "wgpu",
+ "winit",
 ]
 
 [[package]]

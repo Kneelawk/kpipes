@@ -1,8 +1,8 @@
+use crate::messages::FrameSize;
 use wgpu::{
     Device, Extent3d, Texture, TextureDescriptor, TextureDimension, TextureFormat, TextureUsage,
     TextureView,
 };
-use winit::dpi::PhysicalSize;
 
 pub struct TextureWrapper {
     pub texture: Texture,
@@ -10,7 +10,7 @@ pub struct TextureWrapper {
 }
 
 impl TextureWrapper {
-    pub fn new_depth(device: &Device, size: PhysicalSize<u32>, label: &str) -> TextureWrapper {
+    pub fn new_depth(device: &Device, size: FrameSize, label: &str) -> TextureWrapper {
         let extent = Extent3d {
             width: size.width,
             height: size.height,

@@ -2,31 +2,30 @@
 extern crate enum_iterator;
 
 mod direction;
-mod flow;
 mod render;
 mod spaces;
 
+pub mod messages;
+pub mod render_context;
+
 use crate::{
     direction::Direction,
+    messages::{FlowControl, FlowEvent, FrameSize, KeyCode, KeyState, KeyboardEvent},
     render::{
         instance::Instance,
         lighting::{Light, Lighting},
     },
+    render_context::RenderContext,
     spaces::Spaces,
 };
 use arrayvec::ArrayVec;
 use cgmath::{Matrix4, One, Quaternion, Rad, Rotation3, Vector3};
 use enum_iterator::IntoEnumIterator;
-use flow::Flow;
 use futures::executor::block_on;
 use rand::{thread_rng, Rng};
 use render::RenderEngine;
 use std::{f32::consts::PI, io::Cursor, time::Duration};
-use winit::{
-    event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent},
-    event_loop::ControlFlow,
-    window::Window,
-};
+use wgpu::{TextureFormat, TextureView};
 
 /// How long to wait before causing a pipe to grow.
 const GROWTH_DURATION: Duration = Duration::from_millis(50);
@@ -43,21 +42,7 @@ const STRAIGHT_OBJ: &[u8] = include_bytes!("kpipe-straight.obj");
 const BENT_OBJ: &[u8] = include_bytes!("kpipe-bent.obj");
 const END_OBJ: &[u8] = include_bytes!("kpipe-end.obj");
 
-fn main() {
-    env_logger::init();
-
-    let mut flow = Flow::new(KPipes::init);
-    flow.event(KPipes::event);
-    flow.update(KPipes::update);
-    flow.render(KPipes::render);
-    flow.width = 1280;
-    flow.height = 720;
-    flow.title = "KPipes".to_string();
-
-    flow.start().unwrap();
-}
-
-struct KPipes {
+pub struct KPipes {
     renderer: RenderEngine,
     rot: f32,
     spaces: Spaces,
@@ -67,10 +52,16 @@ struct KPipes {
 }
 
 impl KPipes {
-    fn init(window: &Window) -> KPipes {
+    pub fn init(
+        render_context: RenderContext<'_>,
+        window_size: FrameSize,
+        color_format: TextureFormat,
+    ) -> KPipes {
         KPipes {
-            renderer: block_on(RenderEngine::new(
-                window,
+            renderer: RenderEngine::new(
+                render_context,
+                window_size,
+                color_format,
                 Lighting::new(
                     [
                         Light::new((-2.0, 3.0, -4.0).into(), 1.0),
@@ -86,7 +77,7 @@ impl KPipes {
                     Cursor::new(END_OBJ),
                 ],
                 SPACE_WIDTH as u64 * SPACE_HEIGHT as u64 * SPACE_DEPTH as u64,
-            ))
+            )
             .unwrap(),
             rot: 0.0,
             spaces: Default::default(),
@@ -96,48 +87,48 @@ impl KPipes {
         }
     }
 
-    fn event(&mut self, event: WindowEvent) -> Option<ControlFlow> {
+    pub fn event(&mut self, render_context: RenderContext<'_>, event: FlowEvent) -> FlowControl {
         match event {
-            WindowEvent::CloseRequested => Some(ControlFlow::Exit),
-            WindowEvent::KeyboardInput { input, .. } => self.keyboard_event(input),
-            WindowEvent::Resized(size) => {
-                self.renderer.resize(size);
-                None
+            FlowEvent::CloseRequested => FlowControl::Exit,
+            FlowEvent::KeyboardInput { input, .. } => self.keyboard_event(input),
+            FlowEvent::Resized(size) => {
+                self.renderer.resize(render_context, size);
+                FlowControl::None
             }
-            WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                self.renderer.resize(*new_inner_size);
-                None
+            FlowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                self.renderer.resize(render_context, new_inner_size);
+                FlowControl::None
             }
-            _ => None,
+            _ => FlowControl::None,
         }
     }
 
-    fn keyboard_event(&mut self, input: KeyboardInput) -> Option<ControlFlow> {
+    fn keyboard_event(&mut self, input: KeyboardEvent) -> FlowControl {
         match input {
-            KeyboardInput {
-                state: ElementState::Pressed,
-                virtual_keycode: Some(VirtualKeyCode::Escape),
+            KeyboardEvent {
+                state: KeyState::Pressed,
+                virtual_keycode: Some(KeyCode::Escape),
                 ..
-            } => Some(ControlFlow::Exit),
-            KeyboardInput {
-                state: ElementState::Pressed,
-                virtual_keycode: Some(VirtualKeyCode::C),
+            } => FlowControl::Exit,
+            KeyboardEvent {
+                state: KeyState::Pressed,
+                virtual_keycode: Some(KeyCode::C),
                 ..
             } => {
                 self.clear_pipes();
 
-                None
+                FlowControl::None
             }
-            _ => None,
+            _ => FlowControl::None,
         }
     }
 
-    fn update(&mut self, delta: Duration) -> Option<ControlFlow> {
+    pub fn update(&mut self, render_context: RenderContext<'_>, delta: Duration) -> FlowControl {
         // update pipes
         self.time_since_growth += delta;
         if self.time_since_growth > GROWTH_DURATION {
             self.time_since_growth -= GROWTH_DURATION;
-            self.grow();
+            self.grow(render_context);
         }
 
         // update camera
@@ -152,29 +143,34 @@ impl KPipes {
 
         self.renderer.camera.eye = (x, 15.0, z).into();
 
-        block_on(self.renderer.update_camera()).unwrap();
+        block_on(self.renderer.update_camera(render_context)).unwrap();
 
-        None
+        FlowControl::None
     }
 
-    fn render(&mut self, _delta: Duration) {
-        self.renderer.render().unwrap();
+    pub fn render(
+        &mut self,
+        render_context: RenderContext<'_>,
+        view: &TextureView,
+        _delta: Duration,
+    ) {
+        self.renderer.render(render_context, view);
     }
 
     /// Performs a growth step (either growing the current pipe, starting a new
     /// one, or clearing the screen).
-    fn grow(&mut self) {
+    fn grow(&mut self, render_context: RenderContext<'_>) {
         if let Some(prev) = self.previous_segment {
-            self.grow_existing(prev);
+            self.grow_existing(render_context, prev);
         } else {
-            self.new_pipe();
+            self.new_pipe(render_context);
         };
     }
 
     /// Places a pipe segment connected to an existing pipe, changing existing
     /// pipe models as needed. Will start a new pipe if the current pipe is
     /// boxed in.
-    fn grow_existing(&mut self, prev: PreviousSegment) {
+    fn grow_existing(&mut self, render_context: RenderContext<'_>, prev: PreviousSegment) {
         let mut directions = ArrayVec::<[Direction; 6]>::new();
 
         for direction in Direction::into_enum_iter() {
@@ -186,7 +182,7 @@ impl KPipes {
         }
 
         if directions.is_empty() {
-            self.new_pipe();
+            self.new_pipe(render_context);
         } else {
             let mut rand = thread_rng();
 
@@ -197,6 +193,7 @@ impl KPipes {
                 0 => {
                     self.renderer.remove_instances(0, 1).unwrap();
                     block_on(self.renderer.add_instances(
+                        render_context,
                         1,
                         &[Instance {
                             color: self.current_color,
@@ -210,6 +207,7 @@ impl KPipes {
                     self.renderer.remove_instances(4, 1).unwrap();
                     let (rot_matrix, group) = direction_matrix(prev.direction, direction);
                     block_on(self.renderer.add_instances(
+                        render_context,
                         group,
                         &[Instance {
                             color: self.current_color,
@@ -222,6 +220,7 @@ impl KPipes {
             }
 
             block_on(self.renderer.add_instances(
+                render_context,
                 4,
                 &[Instance {
                     color: self.current_color,
@@ -241,7 +240,7 @@ impl KPipes {
 
     /// Starts growing a new pipe. Will clear the pipes and start over if a
     /// suitable location cannot be found.
-    fn new_pipe(&mut self) {
+    fn new_pipe(&mut self, render_context: RenderContext<'_>) {
         let mut attempts = 0;
 
         let location = loop {
@@ -266,6 +265,7 @@ impl KPipes {
         self.current_color = random_color();
 
         block_on(self.renderer.add_instances(
+            render_context,
             0,
             &[Instance {
                 color: self.current_color,
