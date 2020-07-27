@@ -22,6 +22,7 @@ use arrayvec::ArrayVec;
 use cgmath::{Matrix4, One, Quaternion, Rad, Rotation3, Vector3};
 use enum_iterator::IntoEnumIterator;
 use futures::executor::block_on;
+use log::info;
 use rand::{thread_rng, Rng};
 use render::RenderEngine;
 use std::{f32::consts::PI, io::Cursor, time::Duration};
@@ -124,6 +125,8 @@ impl KPipes {
     }
 
     pub fn update(&mut self, render_context: RenderContext<'_>, delta: Duration) -> FlowControl {
+        info!("Update FPS: {}", 1.0 / delta.as_secs_f32());
+
         // update pipes
         self.time_since_growth += delta;
         if self.time_since_growth > GROWTH_DURATION {
@@ -152,8 +155,10 @@ impl KPipes {
         &mut self,
         render_context: RenderContext<'_>,
         view: &TextureView,
-        _delta: Duration,
+        delta: Duration,
     ) {
+        info!("Render FPS: {}", 1.0 / delta.as_secs_f32());
+
         self.renderer.render(render_context, view);
     }
 
