@@ -23,13 +23,17 @@ test_crate() {
   case $CRATE_NAME in
   "kpipes-desktop")
     ci/install_cross_config.sh base
+    cross test --target "$TARGET" --package kpipes-core
     cross test --target "$TARGET" --package kpipes-desktop
+    cross test --target "$TARGET" --package kpipes-core --release
     cross test --target "$TARGET" --package kpipes-desktop --release
     ci/install_cross_config.sh -u
     ;;
   "kpipes-qt")
     ci/install_cross_config.sh qt
+    cross test --target "$TARGET" --package kpipes-core
     cross test --target "$TARGET" --package kpipes-qt-rust
+    cross test --target "$TARGET" --package kpipes-core --release
     cross test --target "$TARGET" --package kpipes-qt-rust --release
     ci/install_cross_config.sh -u
     ;;
