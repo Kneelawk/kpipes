@@ -47,6 +47,7 @@ branches:
   only:
     - /^v\d+\.\d+\.\d+.*$/
     - master
+    - kpipes-qt
 
 notifications:
   - provider: Email
