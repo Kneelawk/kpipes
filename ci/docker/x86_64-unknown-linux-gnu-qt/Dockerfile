@@ -1,0 +1,4 @@
+FROM rustembedded/cross:x86_64-unknown-linux-gnu-0.2.1
+
+RUN apt-get update && \
+    apt-get install -y libx11-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev python3 qtbase5-dev

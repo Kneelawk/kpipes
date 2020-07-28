@@ -2,4 +2,6 @@
 members = [
     "kpipes-core",
     "kpipes-desktop",
+    "kpipes-qt/kpipes-qt-build",
+    "kpipes-qt/kpipes-qt-rust",
 ]

@@ -1,0 +1,11 @@
+[package]
+name = "kpipes-qt-build"
+version = "0.1.0"
+authors = ["Kneelawk <kneelawk@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+cmake = "^0.1.44"
+clap = "^3.0.0-beta.1"
+guess_host_triple = "^0.1.2"
+pathdiff = "^0.2.0"
