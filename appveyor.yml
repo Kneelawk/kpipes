@@ -23,7 +23,7 @@ test_script:
       cargo build --target %TARGET% --package kpipes-desktop --release &&
       cargo test --target %TARGET% --package kpipes-core &&
       cargo test --target %TARGET% --package kpipes-desktop &&
-      cargo test --target %TARGET% --package kpipes-core --release
+      cargo test --target %TARGET% --package kpipes-core --release &&
       cargo test --target %TARGET% --package kpipes-desktop --release
     )
 
