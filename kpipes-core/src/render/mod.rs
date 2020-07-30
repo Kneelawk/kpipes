@@ -20,7 +20,6 @@ use crate::{
         uniforms::Uniforms,
         vertex::Vertex,
     },
-    render_context::RenderContext,
 };
 use std::{
     io,
@@ -32,7 +31,7 @@ use wgpu::{
     Binding, BindingResource, BindingType, BlendDescriptor, BufferAddress, BufferUsage, Color,
     ColorStateDescriptor, ColorWrite, CommandBuffer, CommandEncoderDescriptor, CompareFunction,
     CullMode, DepthStencilStateDescriptor, Device, FrontFace, IndexFormat, LoadOp,
-    PipelineLayoutDescriptor, PrimitiveTopology, ProgrammableStageDescriptor,
+    PipelineLayoutDescriptor, PrimitiveTopology, ProgrammableStageDescriptor, Queue,
     RasterizationStateDescriptor, RenderPassColorAttachmentDescriptor,
     RenderPassDepthStencilAttachmentDescriptor, RenderPassDescriptor, RenderPipeline,
     RenderPipelineDescriptor, ShaderStage, StencilStateFaceDescriptor, StoreOp, TextureFormat,
@@ -64,16 +63,14 @@ impl RenderEngine {
     /// Will return a RenderEngineCreationError if an error occurs while
     /// creating the engine.
     pub fn new<B: BufRead>(
-        render_context: RenderContext<'_>,
+        device: &Device,
+        queue: &Queue,
         window_size: FrameSize,
         color_format: TextureFormat,
         lighting: Lighting,
         instances: &mut [B],
         instance_capacity: BufferAddress,
     ) -> Result<RenderEngine, RenderEngineCreationError> {
-        let device = render_context.device;
-        let queue = render_context.queue;
-
         let mut queue_submissions = vec![];
 
         // setup instance managers
@@ -223,23 +220,22 @@ impl RenderEngine {
     }
 
     /// Resizes the swap chain for this RenderEngine.
-    pub fn resize(&mut self, render_context: RenderContext<'_>, window_size: FrameSize) {
+    pub fn resize(&mut self, device: &Device, window_size: FrameSize) {
         self.camera.aspect = window_size.width as f32 / window_size.height as f32;
-        self.depth_texture =
-            TextureWrapper::new_depth(render_context.device, window_size, "depth_texture");
+        self.depth_texture = TextureWrapper::new_depth(device, window_size, "depth_texture");
     }
 
     /// Updates the data on the gpu to match the changes to this RenderEngine's
     /// camera.
     pub async fn update_camera(
         &mut self,
-        render_context: RenderContext<'_>,
+        device: &Device,
     ) -> Result<CommandBuffer, BufferWriteError> {
         self.uniforms.update_camera(&self.camera);
 
         Ok(self
             .uniform_buffer
-            .replace_all(render_context.device, &[self.uniforms])
+            .replace_all(device, &[self.uniforms])
             .await?)
     }
 
@@ -270,12 +266,10 @@ impl RenderEngine {
     }
 
     /// Performs a render.
-    pub fn render(&mut self, render_context: RenderContext<'_>, view: &TextureView) {
-        let mut encoder = render_context
-            .device
-            .create_command_encoder(&CommandEncoderDescriptor {
-                label: Some("render_pass_encoder"),
-            });
+    pub fn render(&mut self, device: &Device, view: &TextureView) -> CommandBuffer {
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+            label: Some("render_pass_encoder"),
+        });
 
         {
             let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
@@ -310,7 +304,7 @@ impl RenderEngine {
             }
         }
 
-        render_context.queue.submit(&[encoder.finish()]);
+        encoder.finish()
     }
 }
 

@@ -2,12 +2,12 @@ use crate::convert::{FromPhysicalSize, FromWindowEvent};
 use futures::executor::block_on;
 use kpipes_core::{
     messages::{FlowControl, FlowEvent, FrameSize},
-    render_context::RenderContext,
 };
 use std::time::{Duration, SystemTime};
 use wgpu::{
-    Adapter, BackendBit, DeviceDescriptor, Extensions, PowerPreference, PresentMode,
-    RequestAdapterOptions, Surface, SwapChainDescriptor, TextureFormat, TextureUsage, TextureView,
+    Adapter, BackendBit, CommandBuffer, Device, DeviceDescriptor, Extensions, PowerPreference,
+    PresentMode, Queue, RequestAdapterOptions, Surface, SwapChainDescriptor, TextureFormat,
+    TextureUsage, TextureView,
 };
 use winit::{
     dpi::PhysicalSize,
@@ -20,10 +20,11 @@ use winit::{
 /// Used to manage an application's control flow as well as integration with the
 /// window manager.
 pub struct Flow<Model: 'static> {
-    model_init: Box<dyn Fn(RenderContext, FrameSize, TextureFormat) -> Model>,
-    event_callback: Option<Box<dyn Fn(&mut Model, RenderContext, FlowEvent) -> FlowControl>>,
-    update_callback: Option<Box<dyn Fn(&mut Model, RenderContext, Duration) -> FlowControl>>,
-    render_callback: Option<Box<dyn Fn(&mut Model, RenderContext, &TextureView, Duration)>>,
+    model_init: Box<dyn Fn(&Device, &Queue, FrameSize, TextureFormat) -> Model>,
+    event_callback: Option<Box<dyn Fn(&mut Model, &Device, FlowEvent) -> FlowControl>>,
+    update_callback: Option<Box<dyn Fn(&mut Model, &Device, Duration) -> FlowControl>>,
+    render_callback:
+        Option<Box<dyn Fn(&mut Model, &Device, &mut Vec<CommandBuffer>, &TextureView, Duration)>>,
 
     /// The window's title.
     pub title: String,
@@ -39,7 +40,7 @@ impl<Model: 'static> Flow<Model> {
     /// Creates a new Flow designed to handle a specific kind of model.
     ///
     /// This model is instantiated when the Flow is started.
-    pub fn new<F: Fn(RenderContext, FrameSize, TextureFormat) -> Model + 'static>(
+    pub fn new<F: Fn(&Device, &Queue, FrameSize, TextureFormat) -> Model + 'static>(
         model_init: F,
     ) -> Flow<Model> {
         Flow {
@@ -55,7 +56,7 @@ impl<Model: 'static> Flow<Model> {
     }
 
     /// Sets the Flow's window event callback.
-    pub fn event<F: Fn(&mut Model, RenderContext, FlowEvent) -> FlowControl + 'static>(
+    pub fn event<F: Fn(&mut Model, &Device, FlowEvent) -> FlowControl + 'static>(
         &mut self,
         event_callback: F,
     ) {
@@ -63,7 +64,7 @@ impl<Model: 'static> Flow<Model> {
     }
 
     /// Sets the Flow's update callback.
-    pub fn update<F: Fn(&mut Model, RenderContext, Duration) -> FlowControl + 'static>(
+    pub fn update<F: Fn(&mut Model, &Device, Duration) -> FlowControl + 'static>(
         &mut self,
         update_callback: F,
     ) {
@@ -71,7 +72,9 @@ impl<Model: 'static> Flow<Model> {
     }
 
     /// Sets the Flow's render callback.
-    pub fn render<F: Fn(&mut Model, RenderContext, &TextureView, Duration) + 'static>(
+    pub fn render<
+        F: Fn(&mut Model, &Device, &mut Vec<CommandBuffer>, &TextureView, Duration) + 'static,
+    >(
         &mut self,
         render_callback: F,
     ) {
@@ -127,12 +130,12 @@ impl<Model: 'static> Flow<Model> {
 
         let mut swap_chain = device.create_swap_chain(&surface, &sc_desc);
 
+        let mut commands = vec![];
+
         // setup model
         let mut model = (self.model_init)(
-            RenderContext {
-                device: &device,
-                queue: &queue,
-            },
+            &device,
+            &queue,
             FrameSize::from_physical_size(window_size),
             sc_desc.format,
         );
@@ -158,14 +161,8 @@ impl<Model: 'static> Flow<Model> {
                         _ => {}
                     }
 
-                    if event_callback(
-                        &mut model,
-                        RenderContext {
-                            device: &device,
-                            queue: &queue,
-                        },
-                        FlowEvent::from_window_event(event),
-                    ) == FlowControl::Exit
+                    if event_callback(&mut model, &device, FlowEvent::from_window_event(event))
+                        == FlowControl::Exit
                     {
                         *control = ControlFlow::Exit;
                     }
@@ -177,15 +174,7 @@ impl<Model: 'static> Flow<Model> {
                 previous_update = now;
 
                 if let Some(update_callback) = &self.update_callback {
-                    if update_callback(
-                        &mut model,
-                        RenderContext {
-                            device: &device,
-                            queue: &queue,
-                        },
-                        delta,
-                    ) == FlowControl::Exit
-                    {
+                    if update_callback(&mut model, &device, delta) == FlowControl::Exit {
                         *control = ControlFlow::Exit;
                     }
                 }
@@ -204,15 +193,10 @@ impl<Model: 'static> Flow<Model> {
                         .get_next_texture()
                         .expect("Error getting render frame");
 
-                    render_callback(
-                        &mut model,
-                        RenderContext {
-                            device: &device,
-                            queue: &queue,
-                        },
-                        &frame.view,
-                        delta,
-                    );
+                    render_callback(&mut model, &device, &mut commands, &frame.view, delta);
+
+                    queue.submit(&commands);
+                    commands.clear();
                 }
             }
             _ => {}
