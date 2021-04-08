@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate enum_iterator;
 
+mod color;
 mod direction;
 mod render;
 mod spaces;
@@ -8,6 +9,7 @@ mod spaces;
 pub mod messages;
 
 use crate::{
+    color::FromHSB,
     direction::Direction,
     messages::{FlowControl, FlowEvent, FrameSize, KeyCode, KeyState, KeyboardEvent},
     render::{
@@ -320,7 +322,7 @@ struct PreviousSegment {
 /// Generates a random color.
 fn random_color() -> Vector3<f32> {
     let mut rand = thread_rng();
-    Vector3::new(rand.gen(), rand.gen(), rand.gen())
+    Vector3::from_hsb(rand.gen(), rand.gen::<f32>().sqrt().sqrt(), rand.gen::<f32>().sqrt())
 }
 
 /// Generates a random location within the bounds of the pipe space.
