@@ -34,8 +34,7 @@ use wgpu::{
     ShaderSource, ShaderStages, TextureFormat, TextureView, VertexBufferLayout, VertexState,
 };
 
-const SHADER_VERT_SRC: &str = include_str!("shader.vert.wgsl");
-const SHADER_FRAG_SRC: &str = include_str!("shader.frag.wgsl");
+const SHADER_SRC: &str = include_str!("shader.wgsl");
 
 /// Used to manage the details of how render operations are performed.
 pub struct RenderEngine {
@@ -150,14 +149,10 @@ impl RenderEngine {
             label: Some("uniform_bind_group"),
         });
 
-        // setup shaders
-        let vs_module = device.create_shader_module(ShaderModuleDescriptor {
-            label: Some("vertex_module"),
-            source: ShaderSource::Wgsl(Cow::Borrowed(SHADER_VERT_SRC)),
-        });
-        let fs_module = device.create_shader_module(ShaderModuleDescriptor {
-            label: Some("fragment_module"),
-            source: ShaderSource::Wgsl(Cow::Borrowed(SHADER_FRAG_SRC)),
+        // setup shader
+        let module = device.create_shader_module(ShaderModuleDescriptor {
+            label: Some("shader_module"),
+            source: ShaderSource::Wgsl(Cow::Borrowed(SHADER_SRC)),
         });
 
         // setup depth texture
@@ -175,13 +170,13 @@ impl RenderEngine {
             layout: Some(&render_pipeline_layout),
             multisample: Default::default(),
             vertex: VertexState {
-                module: &vs_module,
-                entry_point: "main",
+                module: &module,
+                entry_point: "vert_main",
                 buffers: &[Instance::desc(), Vertex::desc()],
             },
             fragment: Some(FragmentState {
-                module: &fs_module,
-                entry_point: "main",
+                module: &module,
+                entry_point: "frag_main",
                 targets: &[Some(ColorTargetState {
                     format: color_format,
                     blend: Some(BlendState::REPLACE),
