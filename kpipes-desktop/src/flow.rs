@@ -1,13 +1,11 @@
 use crate::convert::{FromPhysicalSize, FromWindowEvent};
 use futures::executor::block_on;
-use kpipes_core::{
-    messages::{FlowControl, FlowEvent, FrameSize},
-};
+use kpipes_core::messages::{FlowControl, FlowEvent, FrameSize};
 use std::time::{Duration, SystemTime};
 use wgpu::{
-    Adapter, BackendBit, CommandBuffer, Device, DeviceDescriptor, Extensions, PowerPreference,
-    PresentMode, Queue, RequestAdapterOptions, Surface, SwapChainDescriptor, TextureFormat,
-    TextureUsage, TextureView,
+    Backends, CommandBuffer, Device, DeviceDescriptor, Instance, InstanceDescriptor,
+    PowerPreference, PresentMode, Queue, RequestAdapterOptions, SurfaceConfiguration, SurfaceError,
+    TextureFormat, TextureUsages, TextureView,
 };
 use winit::{
     dpi::PhysicalSize,
@@ -91,7 +89,7 @@ impl<Model: 'static> Flow<Model> {
                 event_loop
                     .available_monitors()
                     .next()
-                    .map(|m| Fullscreen::Borderless(m)),
+                    .map(|m| Fullscreen::Borderless(Some(m))),
             )
         } else {
             builder.with_inner_size(PhysicalSize::new(self.width, self.height))
@@ -102,33 +100,41 @@ impl<Model: 'static> Flow<Model> {
         // setup wgpu
         let window_size = window.inner_size();
 
-        let surface = Surface::create(&window);
+        let instance = Instance::new(InstanceDescriptor {
+            backends: Backends::PRIMARY,
+            dx12_shader_compiler: Default::default(),
+        });
 
-        let adapter = block_on(Adapter::request(
-            &RequestAdapterOptions {
-                power_preference: PowerPreference::Default,
-                compatible_surface: Some(&surface),
-            },
-            BackendBit::PRIMARY,
-        ))
+        let surface = unsafe { instance.create_surface(&window) }.expect("Error getting surface");
+
+        let adapter = block_on(instance.request_adapter(&RequestAdapterOptions {
+            power_preference: PowerPreference::default(),
+            force_fallback_adapter: false,
+            compatible_surface: Some(&surface),
+        }))
         .expect("Error getting adapter");
 
-        let (device, queue) = block_on(adapter.request_device(&DeviceDescriptor {
-            extensions: Extensions {
-                anisotropic_filtering: false,
+        let (device, queue) = block_on(adapter.request_device(
+            &DeviceDescriptor {
+                label: Some("device"),
+                limits: Default::default(),
+                features: Default::default(),
             },
-            limits: Default::default(),
-        }));
+            None,
+        ))
+        .expect("Error getting device");
 
-        let mut sc_desc = SwapChainDescriptor {
-            usage: TextureUsage::OUTPUT_ATTACHMENT,
+        let mut sc_desc = SurfaceConfiguration {
+            usage: TextureUsages::RENDER_ATTACHMENT,
             format: TextureFormat::Bgra8UnormSrgb,
             width: window_size.width,
             height: window_size.height,
             present_mode: PresentMode::Fifo,
+            alpha_mode: Default::default(),
+            view_formats: vec![TextureFormat::Bgra8UnormSrgb],
         };
 
-        let mut swap_chain = device.create_swap_chain(&surface, &sc_desc);
+        surface.configure(&device, &sc_desc);
 
         let mut commands = vec![];
 
@@ -149,14 +155,14 @@ impl<Model: 'static> Flow<Model> {
                         WindowEvent::Resized(size) => {
                             sc_desc.width = size.width;
                             sc_desc.height = size.height;
-                            swap_chain = device.create_swap_chain(&surface, &sc_desc);
+                            surface.configure(&device, &sc_desc);
                         }
                         WindowEvent::ScaleFactorChanged {
                             ref new_inner_size, ..
                         } => {
                             sc_desc.width = new_inner_size.width;
                             sc_desc.height = new_inner_size.height;
-                            swap_chain = device.create_swap_chain(&surface, &sc_desc);
+                            surface.configure(&device, &sc_desc);
                         }
                         _ => {}
                     }
@@ -189,14 +195,22 @@ impl<Model: 'static> Flow<Model> {
                 previous_render = now;
 
                 if let Some(render_callback) = &self.render_callback {
-                    let frame = swap_chain
-                        .get_next_texture()
-                        .expect("Error getting render frame");
+                    match surface.get_current_texture() {
+                        Ok(frame) => {
+                            let view = frame.texture.create_view(&Default::default());
 
-                    render_callback(&mut model, &device, &mut commands, &frame.view, delta);
+                            render_callback(&mut model, &device, &mut commands, &view, delta);
 
-                    queue.submit(&commands);
-                    commands.clear();
+                            queue.submit(commands.drain(..));
+
+                            frame.present();
+                        }
+                        Err(SurfaceError::OutOfMemory) => {
+                            eprintln!("Out of memory! Exiting...");
+                            *control = ControlFlow::Exit;
+                        }
+                        Err(_) => {}
+                    }
                 }
             }
             _ => {}

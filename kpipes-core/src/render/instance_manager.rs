@@ -4,7 +4,7 @@ use crate::render::{
     mesh::{Mesh, MeshLoadError},
 };
 use std::io::BufRead;
-use wgpu::{BufferAddress, BufferUsage, CommandBuffer, Device, RenderPass};
+use wgpu::{BufferAddress, BufferUsages, CommandBuffer, Device, RenderPass};
 
 /// Manages a set of instances of a mesh.
 pub struct InstanceManager {
@@ -22,7 +22,7 @@ impl InstanceManager {
     ) -> Result<(InstanceManager, Vec<CommandBuffer>), InstanceManagerCreationError> {
         let (mesh, mesh_cb) = Mesh::load(device, reader)?;
 
-        let instance_buffer = BufferWrapper::new(device, instance_capacity, BufferUsage::VERTEX);
+        let instance_buffer = BufferWrapper::new(device, instance_capacity, BufferUsages::VERTEX);
 
         Ok((
             InstanceManager {
@@ -54,7 +54,7 @@ impl InstanceManager {
 
     /// Draws all the instances managed by this InstanceManager.
     pub fn draw<'a>(&'a self, render_pass: &mut RenderPass<'a>) {
-        render_pass.set_vertex_buffer(0, self.instance_buffer.buffer(), 0, 0);
+        render_pass.set_vertex_buffer(0, self.instance_buffer.buffer().slice(..));
         self.mesh.bind(render_pass, 1);
         render_pass.draw_indexed(
             0..self.mesh.index_len(),

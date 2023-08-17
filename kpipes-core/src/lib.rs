@@ -1,6 +1,3 @@
-#[macro_use]
-extern crate enum_iterator;
-
 mod color;
 mod direction;
 mod render;
@@ -20,7 +17,6 @@ use crate::{
 };
 use arrayvec::ArrayVec;
 use cgmath::{Matrix4, One, Quaternion, Rad, Rotation3, Vector3};
-use enum_iterator::IntoEnumIterator;
 use futures::executor::block_on;
 use log::info;
 use rand::{thread_rng, Rng};
@@ -184,9 +180,9 @@ impl KPipes {
     /// pipe models as needed. Will start a new pipe if the current pipe is
     /// boxed in.
     fn grow_existing(&mut self, device: &Device, prev: PreviousSegment) {
-        let mut directions = ArrayVec::<[Direction; 6]>::new();
+        let mut directions = ArrayVec::<Direction, 6>::new();
 
-        for direction in Direction::into_enum_iter() {
+        for direction in enum_iterator::all::<Direction>() {
             if direction.is_offset_legal(prev.location)
                 && !self.spaces.get_vec(direction.offset(prev.location))
             {
@@ -199,7 +195,7 @@ impl KPipes {
         } else {
             let mut rand = thread_rng();
 
-            let direction: Direction = directions[rand.gen_range(0, directions.len())];
+            let direction: Direction = directions[rand.gen_range(0..directions.len())];
             let location = direction.offset(prev.location);
 
             let prev_cb = match prev.group {
@@ -322,16 +318,20 @@ struct PreviousSegment {
 /// Generates a random color.
 fn random_color() -> Vector3<f32> {
     let mut rand = thread_rng();
-    Vector3::from_hsb(rand.gen(), rand.gen::<f32>().sqrt().sqrt(), rand.gen::<f32>().sqrt())
+    Vector3::from_hsb(
+        rand.gen(),
+        rand.gen::<f32>().sqrt().sqrt(),
+        rand.gen::<f32>().sqrt(),
+    )
 }
 
 /// Generates a random location within the bounds of the pipe space.
 fn random_location() -> Vector3<usize> {
     let mut rand = thread_rng();
     Vector3::new(
-        rand.gen_range(0, SPACE_WIDTH),
-        rand.gen_range(0, SPACE_HEIGHT),
-        rand.gen_range(0, SPACE_DEPTH),
+        rand.gen_range(0..SPACE_WIDTH),
+        rand.gen_range(0..SPACE_HEIGHT),
+        rand.gen_range(0..SPACE_DEPTH),
     )
 }
 

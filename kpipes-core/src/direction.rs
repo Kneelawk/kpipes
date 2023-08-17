@@ -1,9 +1,10 @@
 use crate::{SPACE_DEPTH, SPACE_HEIGHT, SPACE_WIDTH};
 use cgmath::{One, Vector3};
+use enum_iterator::Sequence;
 use std::ops::{Add, Sub};
 
 /// Describes a direction in 3d space.
-#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, IntoEnumIterator)]
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Sequence)]
 pub enum Direction {
     Up,
     Down,

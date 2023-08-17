@@ -8,13 +8,19 @@ pub const NUM_LIGHTS: usize = 2;
 pub struct Light {
     pub direction: Vector3<f32>,
     pub strength: f32,
+    pub _padding1: u32,
+    pub _padding2: u32,
+    pub _padding3: u32,
 }
 
 impl Light {
     pub fn new(direction: Vector3<f32>, strength: f32) -> Light {
         Light {
             direction: direction.normalize(),
-            strength
+            strength,
+            _padding1: 0,
+            _padding2: 0,
+            _padding3: 0,
         }
     }
 }

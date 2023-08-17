@@ -1,17 +1,18 @@
 [package]
 name = "kpipes-core"
-version = "1.0.1"
+version = "2.0.0"
 authors = ["Kneelawk <kneelawk@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
-arrayvec = "^0.5.1"
+arrayvec = "^0.7.4"
 bytemuck = "^1.2.0"
-cgmath = "^0.17.0"
-enum-iterator = "^0.6.0"
+cgmath = "^0.18.0"
+enum-iterator = "^1.4.1"
 futures = "^0.3.5"
+futures-intrusive = "^0.5.0"
 #lazy_static = "^1.4.0"
 log = "^0.4.11"
-rand = "^0.7.3"
-tobj = "^2.0.2"
-wgpu = "^0.5.2"
+rand = "^0.8.5"
+tobj = "^4.0.0"
+wgpu = "^0.17.0"

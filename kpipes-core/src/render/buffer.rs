@@ -1,9 +1,7 @@
 use bytemuck::{cast_slice, Pod};
 use std::{marker::PhantomData, mem::size_of};
-use wgpu::{
-    Buffer, BufferAddress, BufferAsyncErr, BufferDescriptor, BufferUsage, CommandBuffer,
-    CommandEncoderDescriptor, Device, Maintain,
-};
+use wgpu::{Buffer, BufferAddress, BufferAsyncError, BufferDescriptor, BufferUsages, CommandBuffer, CommandEncoderDescriptor, Device, Maintain, MapMode};
+use crate::render::util::least_power_of_2_greater;
 
 /// Statically-sized wrapper around a GPU buffer.
 pub struct BufferWrapper<D: Encodable + Sized> {
@@ -26,22 +24,27 @@ impl<D: Encodable + Sized> BufferWrapper<D> {
     pub fn from_data(
         device: &Device,
         data: &[D],
-        usage: BufferUsage,
+        usage: BufferUsages,
     ) -> (BufferWrapper<D>, CommandBuffer) {
         let size = data.len() as BufferAddress;
         let buffer_size = size * BufferWrapper::<D>::data_size();
-        let staging_buffer = device.create_buffer_mapped(&BufferDescriptor {
+        let staging_buffer = device.create_buffer(&BufferDescriptor {
             label: Some("wrapped_staging_buffer"),
             size: buffer_size,
-            usage: BufferUsage::MAP_WRITE | BufferUsage::COPY_SRC,
+            usage: BufferUsages::MAP_WRITE | BufferUsages::COPY_SRC,
+            mapped_at_creation: true,
         });
-        D::encode_slice(data, staging_buffer.data);
-        let staging_buffer = staging_buffer.finish();
+        D::encode_slice(
+            data,
+            staging_buffer.slice(..).get_mapped_range_mut().as_mut(),
+        );
+        staging_buffer.unmap();
 
         let buffer = device.create_buffer(&BufferDescriptor {
             label: Some("wrapped_buffer"),
             size: buffer_size,
-            usage: usage | BufferUsage::COPY_DST,
+            usage: usage | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
 
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
@@ -64,11 +67,12 @@ impl<D: Encodable + Sized> BufferWrapper<D> {
     }
 
     /// Creates a new buffer wrapper with the given capacity.
-    pub fn new(device: &Device, capacity: BufferAddress, usage: BufferUsage) -> BufferWrapper<D> {
+    pub fn new(device: &Device, capacity: BufferAddress, usage: BufferUsages) -> BufferWrapper<D> {
         let buffer = device.create_buffer(&BufferDescriptor {
             label: Some("wrapped_buffer"),
             size: capacity * BufferWrapper::<D>::data_size(),
-            usage: usage | BufferUsage::COPY_DST,
+            usage: usage | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
 
         BufferWrapper {
@@ -122,16 +126,20 @@ impl<D: Encodable + Sized> BufferWrapper<D> {
 
         let staging_buffer = self.staging_buffer.as_ref().unwrap();
 
-        let mapping_fut = staging_buffer.map_write(0, data_len * BufferWrapper::<D>::data_size());
-
-        // poll this future to make sure it actually runs
-        // Ideally, this would happen in a loop designed for this.
-        device.poll(Maintain::Wait);
-
         {
-            let mut mapping = mapping_fut.await?;
-            D::encode_slice(data, mapping.as_slice());
+            let staging_slice = staging_buffer.slice(..);
+            let (tx, rx) = futures_intrusive::channel::shared::oneshot_channel();
+            staging_slice.map_async(MapMode::Write, move |res| {
+                tx.send(res).ok();
+            });
+            device.poll(Maintain::Wait);
+            rx.receive().await.unwrap()?;
+            let mut mapping = staging_slice.get_mapped_range_mut();
+            let copy_size = (data_len as usize) * D::size();
+            D::encode_slice(data, &mut mapping[..copy_size]);
         }
+
+        staging_buffer.unmap();
 
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("buffer_staging_encoder"),
@@ -169,14 +177,19 @@ impl<D: Encodable + Sized> BufferWrapper<D> {
 
         let staging_buffer = self.staging_buffer.as_ref().unwrap();
 
-        let mapping_fut = staging_buffer.map_write(0, data_len * BufferWrapper::<D>::data_size());
-
-        device.poll(Maintain::Wait);
-
         {
-            let mut mapping = mapping_fut.await?;
-            D::encode_slice(data, mapping.as_slice());
+            let staging_slice = staging_buffer.slice(..);
+            let (tx, rx) = futures_intrusive::channel::shared::oneshot_channel();
+            staging_slice.map_async(MapMode::Write, move |res| {
+                tx.send(res).ok();
+            });
+            device.poll(Maintain::Wait);
+            rx.receive().await.unwrap()?;
+            let mut mapping = staging_slice.get_mapped_range_mut();
+            D::encode_slice(data, mapping.as_mut());
         }
+
+        staging_buffer.unmap();
 
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("buffer_staging_encoder"),
@@ -199,11 +212,13 @@ impl<D: Encodable + Sized> BufferWrapper<D> {
     /// Makes sure there is enough space in the staging buffer to handle
     /// whatever needs the staging buffer.
     fn ensure_staging_capacity(&mut self, device: &Device, size: BufferAddress) {
+        let size = least_power_of_2_greater(size);
         if self.staging_buffer.is_none() || self.staging_capacity < size {
             self.staging_buffer = Some(device.create_buffer(&BufferDescriptor {
                 label: Some("wrapped_staging_buffer"),
                 size: size * BufferWrapper::<D>::data_size(),
-                usage: BufferUsage::MAP_WRITE | BufferUsage::COPY_SRC,
+                usage: BufferUsages::MAP_WRITE | BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
             }));
             self.staging_capacity = size;
         }
@@ -217,8 +232,8 @@ pub enum BufferWriteError {
     BufferAsyncError,
 }
 
-impl From<BufferAsyncErr> for BufferWriteError {
-    fn from(_: BufferAsyncErr) -> Self {
+impl From<BufferAsyncError> for BufferWriteError {
+    fn from(_: BufferAsyncError) -> Self {
         BufferWriteError::BufferAsyncError
     }
 }

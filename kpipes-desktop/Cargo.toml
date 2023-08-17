@@ -2,12 +2,12 @@
 name = "kpipes-desktop"
 version = "1.0.1"
 authors = ["Kneelawk <kneelawk@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
-kpipes-core = { version = "1.0.1", path = "../kpipes-core" }
-env_logger = "^0.7.1"
+kpipes-core = { version = "2.0.0", path = "../kpipes-core" }
+env_logger = "^0.10.0"
 futures = "^0.3.5"
 log = "^0.4.11"
-winit = "^0.22.2"
-wgpu = "^0.5.2"
+winit = "^0.28.6"
+wgpu = "^0.17.0"

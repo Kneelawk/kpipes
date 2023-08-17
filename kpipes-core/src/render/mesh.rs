@@ -1,8 +1,8 @@
 use crate::render::{buffer::BufferWrapper, vertex::Vertex};
 use cgmath::Vector3;
 use std::io::BufRead;
-use tobj::{load_obj_buf, LoadError};
-use wgpu::{BufferUsage, CommandBuffer, Device, RenderPass};
+use tobj::{load_obj_buf, LoadError, LoadOptions};
+use wgpu::{BufferUsages, CommandBuffer, Device, IndexFormat, RenderPass};
 
 /// Describes a single mesh.
 pub struct Mesh {
@@ -16,7 +16,16 @@ impl Mesh {
         device: &Device,
         reader: &mut B,
     ) -> Result<(Mesh, Vec<CommandBuffer>), MeshLoadError> {
-        let (obj, _) = load_obj_buf(reader, true, |_p| Err(LoadError::GenericFailure))?;
+        let (obj, _) = load_obj_buf(
+            reader,
+            &LoadOptions {
+                single_index: true,
+                triangulate: true,
+                ignore_points: true,
+                ignore_lines: true,
+            },
+            |_p| Err(LoadError::GenericFailure),
+        )?;
 
         let model = obj
             .into_iter()
@@ -41,9 +50,9 @@ impl Mesh {
         }
 
         let (vertex_buffer, vertex_cb) =
-            BufferWrapper::from_data(device, &vertices, BufferUsage::VERTEX);
+            BufferWrapper::from_data(device, &vertices, BufferUsages::VERTEX);
         let (index_buffer, index_cb) =
-            BufferWrapper::from_data(device, &model.mesh.indices, BufferUsage::INDEX);
+            BufferWrapper::from_data(device, &model.mesh.indices, BufferUsages::INDEX);
 
         Ok((
             Mesh {
@@ -60,8 +69,8 @@ impl Mesh {
 
     /// Bind this model for a subsequent draw call.
     pub fn bind<'a>(&'a self, render_pass: &mut RenderPass<'a>, vertex_slot: u32) {
-        render_pass.set_vertex_buffer(vertex_slot, self.vertex_buffer.buffer(), 0, 0);
-        render_pass.set_index_buffer(self.index_buffer.buffer(), 0, 0);
+        render_pass.set_vertex_buffer(vertex_slot, self.vertex_buffer.buffer().slice(..));
+        render_pass.set_index_buffer(self.index_buffer.buffer().slice(..), IndexFormat::Uint32);
     }
 }
 

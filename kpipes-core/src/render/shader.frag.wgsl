@@ -6,6 +6,9 @@ struct Light {
 struct Lighting {
     u_lights: array<Light, 2>,
     u_ambient_light: f32,
+    _padding1: u32,
+    _padding2: u32,
+    _padding3: u32,
 }
 
 struct FragmentOutput {

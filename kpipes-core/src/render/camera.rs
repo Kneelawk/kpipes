@@ -20,7 +20,7 @@ pub struct Camera {
 
 impl Camera {
     pub fn build_vp_matrix(&self) -> Matrix4<f32> {
-        let view = Matrix4::look_at(self.eye, self.target, self.up);
+        let view = Matrix4::look_at_rh(self.eye, self.target, self.up);
         let project = perspective(Deg(self.fovy), self.aspect, self.znear, self.zfar);
 
         return OPENGL_TO_WGPU_MATRIX * project * view;

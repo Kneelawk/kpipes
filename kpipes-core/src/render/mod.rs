@@ -6,6 +6,7 @@ pub mod lighting;
 pub mod mesh;
 pub mod texture;
 pub mod uniforms;
+pub mod util;
 pub mod vertex;
 
 use crate::{
@@ -21,25 +22,20 @@ use crate::{
         vertex::Vertex,
     },
 };
-use std::{
-    io,
-    io::{BufRead, Cursor},
-    mem::size_of,
-};
+use std::{borrow::Cow, io, io::BufRead};
 use wgpu::{
-    read_spirv, BindGroup, BindGroupDescriptor, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
-    Binding, BindingResource, BindingType, BlendDescriptor, BufferAddress, BufferUsage, Color,
-    ColorStateDescriptor, ColorWrite, CommandBuffer, CommandEncoderDescriptor, CompareFunction,
-    CullMode, DepthStencilStateDescriptor, Device, FrontFace, IndexFormat, LoadOp,
-    PipelineLayoutDescriptor, PrimitiveTopology, ProgrammableStageDescriptor, Queue,
-    RasterizationStateDescriptor, RenderPassColorAttachmentDescriptor,
-    RenderPassDepthStencilAttachmentDescriptor, RenderPassDescriptor, RenderPipeline,
-    RenderPipelineDescriptor, ShaderStage, StencilStateFaceDescriptor, StoreOp, TextureFormat,
-    TextureView, VertexBufferDescriptor, VertexStateDescriptor,
+    BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor,
+    BindGroupLayoutEntry, BindingResource, BindingType, BlendState, BufferAddress,
+    BufferBindingType, BufferUsages, Color, ColorTargetState, ColorWrites, CommandBuffer,
+    CommandEncoderDescriptor, CompareFunction, DepthStencilState, Device, Face, FragmentState,
+    FrontFace, LoadOp, Operations, PipelineLayoutDescriptor, PolygonMode, PrimitiveState,
+    PrimitiveTopology, Queue, RenderPassColorAttachment, RenderPassDepthStencilAttachment,
+    RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor, ShaderModuleDescriptor,
+    ShaderSource, ShaderStages, TextureFormat, TextureView, VertexBufferLayout, VertexState,
 };
 
-const SHADER_VERT: &[u8] = include_bytes!("shader.vert.spv");
-const SHADER_FRAG: &[u8] = include_bytes!("shader.frag.spv");
+const SHADER_VERT_SRC: &str = include_str!("shader.vert.wgsl");
+const SHADER_FRAG_SRC: &str = include_str!("shader.frag.wgsl");
 
 /// Used to manage the details of how render operations are performed.
 pub struct RenderEngine {
@@ -99,27 +95,37 @@ impl RenderEngine {
 
         // create uniform buffer
         let (uniform_buffer, uniform_cb) =
-            BufferWrapper::from_data(device, &[uniforms], BufferUsage::UNIFORM);
+            BufferWrapper::from_data(device, &[uniforms], BufferUsages::UNIFORM);
         queue_submissions.push(uniform_cb);
 
         // setup lighting values
         let (lighting_buffer, lighting_cb) =
-            BufferWrapper::from_data(device, &[lighting], BufferUsage::UNIFORM);
+            BufferWrapper::from_data(device, &[lighting], BufferUsages::UNIFORM);
         queue_submissions.push(lighting_cb);
 
         // setup uniform bind group
         let uniform_bind_group_layout =
             device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                bindings: &[
+                entries: &[
                     BindGroupLayoutEntry {
                         binding: 0,
-                        visibility: ShaderStage::VERTEX,
-                        ty: BindingType::UniformBuffer { dynamic: false },
+                        visibility: ShaderStages::VERTEX,
+                        ty: BindingType::Buffer {
+                            ty: BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
                     BindGroupLayoutEntry {
                         binding: 1,
-                        visibility: ShaderStage::FRAGMENT,
-                        ty: BindingType::UniformBuffer { dynamic: false },
+                        visibility: ShaderStages::FRAGMENT,
+                        ty: BindingType::Buffer {
+                            ty: BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
                 ],
                 label: Some("uniform_bind_group_layout"),
@@ -127,84 +133,82 @@ impl RenderEngine {
 
         let uniform_bind_group = device.create_bind_group(&BindGroupDescriptor {
             layout: &uniform_bind_group_layout,
-            bindings: &[
-                Binding {
+            entries: &[
+                BindGroupEntry {
                     binding: 0,
-                    resource: BindingResource::Buffer {
-                        buffer: uniform_buffer.buffer(),
-                        range: 0..size_of::<Uniforms>() as BufferAddress,
-                    },
+                    resource: BindingResource::Buffer(
+                        uniform_buffer.buffer().as_entire_buffer_binding(),
+                    ),
                 },
-                Binding {
+                BindGroupEntry {
                     binding: 1,
-                    resource: BindingResource::Buffer {
-                        buffer: lighting_buffer.buffer(),
-                        range: 0..size_of::<Lighting>() as BufferAddress,
-                    },
+                    resource: BindingResource::Buffer(
+                        lighting_buffer.buffer().as_entire_buffer_binding(),
+                    ),
                 },
             ],
             label: Some("uniform_bind_group"),
         });
 
         // setup shaders
-        let vs_data = read_spirv(Cursor::new(SHADER_VERT))?;
-        let fs_data = read_spirv(Cursor::new(SHADER_FRAG))?;
-
-        let vs_module = device.create_shader_module(&vs_data);
-        let fs_module = device.create_shader_module(&fs_data);
+        let vs_module = device.create_shader_module(ShaderModuleDescriptor {
+            label: Some("vertex_module"),
+            source: ShaderSource::Wgsl(Cow::Borrowed(SHADER_VERT_SRC)),
+        });
+        let fs_module = device.create_shader_module(ShaderModuleDescriptor {
+            label: Some("fragment_module"),
+            source: ShaderSource::Wgsl(Cow::Borrowed(SHADER_FRAG_SRC)),
+        });
 
         // setup depth texture
         let depth_texture = TextureWrapper::new_depth(device, window_size, "depth_texture");
 
         // setup render pipeline
         let render_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("render_pipeline_layout"),
             bind_group_layouts: &[&uniform_bind_group_layout],
+            push_constant_ranges: &[],
         });
 
         let render_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
-            layout: &render_pipeline_layout,
-            vertex_stage: ProgrammableStageDescriptor {
+            label: Some("render_pipeline"),
+            layout: Some(&render_pipeline_layout),
+            multisample: Default::default(),
+            vertex: VertexState {
                 module: &vs_module,
                 entry_point: "main",
+                buffers: &[Instance::desc(), Vertex::desc()],
             },
-            fragment_stage: Some(ProgrammableStageDescriptor {
+            fragment: Some(FragmentState {
                 module: &fs_module,
                 entry_point: "main",
+                targets: &[Some(ColorTargetState {
+                    format: color_format,
+                    blend: Some(BlendState::REPLACE),
+                    write_mask: ColorWrites::ALL,
+                })],
             }),
-            rasterization_state: Some(RasterizationStateDescriptor {
+            primitive: PrimitiveState {
+                topology: PrimitiveTopology::TriangleList,
+                strip_index_format: None,
                 front_face: FrontFace::Ccw,
-                cull_mode: CullMode::Back,
-                depth_bias: 0,
-                depth_bias_slope_scale: 0.0,
-                depth_bias_clamp: 0.0,
-            }),
-            primitive_topology: PrimitiveTopology::TriangleList,
-            color_states: &[ColorStateDescriptor {
-                format: color_format,
-                alpha_blend: BlendDescriptor::REPLACE,
-                color_blend: BlendDescriptor::REPLACE,
-                write_mask: ColorWrite::ALL,
-            }],
-            depth_stencil_state: Some(DepthStencilStateDescriptor {
+                cull_mode: Some(Face::Back),
+                unclipped_depth: false,
+                polygon_mode: PolygonMode::Fill,
+                conservative: false,
+            },
+            depth_stencil: Some(DepthStencilState {
                 format: TextureFormat::Depth32Float,
                 depth_write_enabled: true,
                 depth_compare: CompareFunction::Less,
-                stencil_front: StencilStateFaceDescriptor::IGNORE,
-                stencil_back: StencilStateFaceDescriptor::IGNORE,
-                stencil_read_mask: 0,
-                stencil_write_mask: 0,
+                stencil: Default::default(),
+                bias: Default::default(),
             }),
-            vertex_state: VertexStateDescriptor {
-                index_format: IndexFormat::Uint32,
-                vertex_buffers: &[Instance::desc(), Vertex::desc()],
-            },
-            sample_count: 1,
-            sample_mask: 0,
-            alpha_to_coverage_enabled: false,
+            multiview: None,
         });
 
         // submit initial commands
-        queue.submit(&queue_submissions);
+        queue.submit(queue_submissions);
 
         // return the result
         Ok(RenderEngine {
@@ -273,26 +277,30 @@ impl RenderEngine {
 
         {
             let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                color_attachments: &[RenderPassColorAttachmentDescriptor {
-                    attachment: view,
+                label: Some("render_pass"),
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view,
                     resolve_target: None,
-                    load_op: LoadOp::Clear,
-                    store_op: StoreOp::Store,
-                    clear_color: Color {
-                        r: 0.02,
-                        g: 0.02,
-                        b: 0.02,
-                        a: 1.0,
+                    ops: Operations {
+                        load: LoadOp::Clear(Color {
+                            r: 0.02,
+                            g: 0.02,
+                            b: 0.02,
+                            a: 1.0,
+                        }),
+                        store: true,
                     },
-                }],
-                depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
-                    attachment: &self.depth_texture.view,
-                    depth_load_op: LoadOp::Clear,
-                    depth_store_op: StoreOp::Store,
-                    clear_depth: 1.0,
-                    stencil_load_op: LoadOp::Clear,
-                    stencil_store_op: StoreOp::Store,
-                    clear_stencil: 0,
+                })],
+                depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture.view,
+                    depth_ops: Some(Operations {
+                        load: LoadOp::Clear(1.0),
+                        store: true,
+                    }),
+                    stencil_ops: Some(Operations {
+                        load: LoadOp::Clear(0),
+                        store: true,
+                    }),
                 }),
             });
 
@@ -310,7 +318,7 @@ impl RenderEngine {
 
 /// Trait implemented by anything that can be put into a vertex buffer.
 pub trait VertexData {
-    fn desc<'a>() -> VertexBufferDescriptor<'a>;
+    fn desc<'a>() -> VertexBufferLayout<'a>;
 }
 
 /// Error potentially returned when creating a RenderEngine.
