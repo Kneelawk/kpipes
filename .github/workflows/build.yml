@@ -1,0 +1,43 @@
+# This handles basic CI building of the project, running tests, and such.
+
+name: build
+on: [pull_request, push]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Install Linux dependencies
+        if: ${{ runner.os == 'Linux' }}
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libxcb-shape0-dev libxcb-xfixes0-dev
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Retrieve Cargo cache
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly-2021-11-26
+      - name: Run build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+        env:
+          WINIT_LINK_COLORSYNC: true
+      - name: Run tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+        env:
+          WINIT_LINK_COLORSYNC: true
