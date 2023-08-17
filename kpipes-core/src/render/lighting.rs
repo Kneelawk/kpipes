@@ -8,9 +8,6 @@ pub const NUM_LIGHTS: usize = 2;
 pub struct Light {
     pub direction: Vector3<f32>,
     pub strength: f32,
-    pub _padding1: u32,
-    pub _padding2: u32,
-    pub _padding3: u32,
 }
 
 impl Light {
@@ -18,9 +15,6 @@ impl Light {
         Light {
             direction: direction.normalize(),
             strength,
-            _padding1: 0,
-            _padding2: 0,
-            _padding3: 0,
         }
     }
 }
@@ -33,6 +27,9 @@ pub struct Lighting {
     // and C alignment.
     pub lights: [Light; NUM_LIGHTS],
     pub ambient_light: f32,
+    pub _padding1: u32,
+    pub _padding2: u32,
+    pub _padding3: u32,
 }
 
 unsafe impl Pod for Lighting {}
@@ -43,6 +40,9 @@ impl Lighting {
         Lighting {
             lights,
             ambient_light,
+            _padding1: 0,
+            _padding2: 0,
+            _padding3: 0,
         }
     }
 }
